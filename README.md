@@ -4,26 +4,51 @@ RAG application for chatting with documents uploaded by the user.
 
 ## Current status
 
-The initial FastAPI skeleton is in place. The `/health` endpoint is separated
-into its own router. Application metadata is kept in `app/core/config.py`.
+The initial FastAPI skeleton is in place, including:
+- PostgreSQL configuration via SQLAlchemy and Alembic.
+- REST API for Workspaces, Documents, Conversations, and Messages.
+- Integration tests using `pytest` and `httpx`.
 
-## Run locally
+**Note: The RAG (Retrieval-Augmented Generation) pipeline is not yet implemented.**
 
-From the project root, create and activate a virtual environment, then install
-the current minimal dependencies:
+## Prerequisites
 
+- Python 3.14+
+- Docker & Docker Compose
+- PostgreSQL (via Docker)
+- Qdrant (via Docker)
+
+## Development setup
+
+1. Clone the repository.
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv .venv
+   # Windows PowerShell:
+   .venv\Scripts\Activate.ps1
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   pip install -r requirements-dev.txt
+   ```
+4. Set up environment variables (see `.env.example`).
+5. Start infrastructure:
+   ```bash
+   docker compose up -d
+   ```
+6. Run database migrations:
+   ```bash
+   alembic upgrade head
+   ```
+7. Run the application:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+## Running tests
+
+Run the test suite from the project root:
 ```bash
-python -m venv .venv
-# Windows PowerShell:
-.venv\\Scripts\\Activate.ps1
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+python -m pytest
 ```
-
-Open `http://127.0.0.1:8000/health` for the health check and
-`http://127.0.0.1:8000/docs` for the interactive API documentation.
-
-## Development approach
-
-Implement features incrementally. The application will answer only from
-documents uploaded by the user; no built-in document corpus is planned.

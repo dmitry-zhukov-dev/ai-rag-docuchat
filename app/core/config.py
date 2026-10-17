@@ -1,17 +1,22 @@
-from dataclasses import dataclass
-import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-@dataclass(frozen=True)
-class Settings:
-    """Small, dependency-free application settings for the initial skeleton."""
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables and .env file."""
 
-    app_name: str = os.getenv("APP_NAME", "DocuChat")
-    app_description: str = os.getenv(
-        "APP_DESCRIPTION",
-        "Chat with your own documents",
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
-    app_version: str = os.getenv("APP_VERSION", "0.1.0")
+
+    # Application metadata
+    app_name: str = "DocuChat"
+    app_description: str = "Chat with your own documents"
+    app_version: str = "0.1.0"
+
+    # PostgreSQL connection
+    database_url: str = "postgresql+psycopg2://docuchat:docuchat@localhost:5433/docuchat"
 
 
 settings = Settings()
