@@ -92,8 +92,9 @@ def search_chunks(
     query_vector: list[float],
     limit: int = 5,
     document_id: str | None = None,
+    document_ids: list[str] | None = None,
 ) -> list[dict]:
-    """Find the most similar chunks for a query embedding."""
+    """Find similar chunks, optionally restricted to specific documents."""
     if len(query_vector) != EMBEDDING_DIMENSION:
         raise ValueError(
             f"query_vector must contain {EMBEDDING_DIMENSION} dimensions."
@@ -105,6 +106,17 @@ def search_chunks(
     if limit <= 0:
         raise ValueError("limit must be greater than zero.")
 
+    if document_ids is not None:
+        if not isinstance(document_ids, list):
+            raise TypeError("document_ids must be a list.")
+
+        if any(not isinstance(item, str) or not item.strip() for item in document_ids):
+            raise ValueError("document_ids cannot contain empty or non-string values.")
+
+        # An explicitly empty list means there are no allowed documents.
+        if not document_ids:
+            return []
+
     client = get_qdrant_client()
 
     if not client.collection_exists(COLLECTION_NAME):
@@ -112,7 +124,20 @@ def search_chunks(
 
     query_filter = None
 
-    if document_id is not None:
+    if document_ids is not None:
+        query_filter = models.Filter(
+            should=[
+                models.FieldCondition(
+                    key="document_id",
+                    match=models.MatchValue(value=doc_id),
+                )
+                for doc_id in document_ids
+            ],
+            min_should=models.MinShould(
+                conditions=1,
+            ),
+        )
+    elif document_id is not None:
         query_filter = models.Filter(
             must=[
                 models.FieldCondition(
@@ -139,3 +164,29 @@ def search_chunks(
         }
         for point in results
     ]
+
+
+def delete_document_chunks(document_id: str) -> None:
+    """Delete all indexed chunks belonging to a document."""
+    if not isinstance(document_id, str) or not document_id.strip():
+        raise ValueError("document_id cannot be empty.")
+
+    client = get_qdrant_client()
+
+    if not client.collection_exists(COLLECTION_NAME):
+        return
+
+    client.delete(
+        collection_name=COLLECTION_NAME,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="document_id",
+                        match=models.MatchValue(value=document_id),
+                    )
+                ]
+            )
+        ),
+        wait=True,
+    )

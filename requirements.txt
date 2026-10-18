@@ -12,3 +12,4 @@ sentence-transformers
 qdrant-client
 google-genai
 python-dotenv
+python-multipart

@@ -6,6 +6,7 @@ from app.api.deps import get_db
 from app.services.conversation import ConversationService
 from app.schemas.conversation import (
     ConversationCreate,
+    ConversationUpdate,
     ConversationResponse,
     MessageCreate,
     MessageResponse,
@@ -98,3 +99,46 @@ def add_message(
     if not msg:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return msg
+
+
+@conversations_router.delete(
+    "/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+):
+    deleted = service.delete_conversation(db, conversation_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+
+    return None
+
+
+@conversations_router.patch(
+    "/conversations/{conversation_id}",
+    response_model=ConversationResponse,
+)
+def update_conversation(
+    conversation_id: int,
+    conversation_in: ConversationUpdate,
+    db: Session = Depends(get_db),
+):
+    conversation = service.update_conversation(
+        db,
+        conversation_id=conversation_id,
+        title=conversation_in.title,
+    )
+
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+
+    return conversation

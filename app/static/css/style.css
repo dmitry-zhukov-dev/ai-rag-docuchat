@@ -1,0 +1,35 @@
+body { font-family: sans-serif; margin: 0; display: flex; height: 100vh; }
+.app-container { display: flex; width: 100%; }
+.sidebar { width: 250px; background: #f4f4f4; border-right: 1px solid #ddd; padding: 15px; display: flex; flex-direction: column; }
+.sidebar-header h1 { font-size: 1.2rem; margin-top: 0; }
+.btn { padding: 8px 12px; cursor: pointer; border-radius: 4px; border: none; }
+.btn-primary { background: #007bff; color: white; width: 100%; }
+.workspace-list { margin-top: 15px; overflow-y: auto; }
+.workspace-item { padding: 10px; cursor: pointer; border-radius: 4px; border: 1px solid #ddd; margin-bottom: 5px; background: white; }
+.workspace-item:hover { background: #eee; }
+.workspace-item.selected { background: #e0e0e0; border-color: #bbb; }
+.main-content { flex: 1; padding: 20px; overflow-y: auto; }
+.hidden { display: none; }
+.error-message { color: red; margin-top: 10px; }
+.loading { font-size: 0.9rem; color: #666; margin-top: 10px; }
+
+/* Document styles */
+.document-section { margin-top: 20px; border-bottom: 1px solid #ccc; padding-bottom: 20px; }
+.upload-controls { margin-bottom: 15px; display: flex; gap: 10px; align-items: center; }
+.document-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee; align-items: center; }
+.status-badge { font-size: 0.8rem; padding: 2px 6px; border-radius: 10px; background: #ddd; }
+.status-processing { background: #fff3cd; }
+.status-completed { background: #d4edda; }
+.status-failed { background: #f8d7da; }
+.btn-delete { background: #dc3545; color: white; padding: 4px 8px; font-size: 0.8rem; }
+
+/* Chat styles */
+.chat-section { margin-top: 20px; }
+.conversation-list { margin: 10px 0; }
+.chat-window { border: 1px solid #ccc; padding: 10px; border-radius: 4px; }
+.message-history { height: 300px; overflow-y: auto; border: 1px solid #eee; margin-bottom: 10px; padding: 10px; }
+.message { margin-bottom: 10px; padding: 5px; border-radius: 4px; }
+.message.user { background: #e7f3ff; text-align: right; }
+.message.assistant { background: #f0f0f0; }
+.chat-input-area { display: flex; gap: 5px; }
+#chat-input { flex: 1; padding: 8px; }

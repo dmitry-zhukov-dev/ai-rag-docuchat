@@ -1,12 +1,21 @@
-from pydantic import BaseModel, ConfigDict, Field
+
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
 
 class ConversationBase(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
 
+
 class ConversationCreate(ConversationBase):
     pass
+
+
+class ConversationUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+
 
 class ConversationResponse(ConversationBase):
     id: int
@@ -15,12 +24,15 @@ class ConversationResponse(ConversationBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class MessageBase(BaseModel):
     sender_role: str = Field(..., max_length=50)
     text: str = Field(..., min_length=1)
 
+
 class MessageCreate(MessageBase):
     pass
+
 
 class MessageResponse(MessageBase):
     id: int
