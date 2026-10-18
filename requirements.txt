@@ -7,3 +7,4 @@ alembic
 pypdf>=3.0.0
 httpx2
 pytest
+langchain-text-splitters
