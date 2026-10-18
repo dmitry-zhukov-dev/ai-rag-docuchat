@@ -1,0 +1,4 @@
+﻿DocuChat is an application for chatting with documents.
+RAG stands for Retrieval-Augmented Generation.
+Embeddings represent text as numerical vectors.
+Qdrant stores vectors and supports semantic search.
