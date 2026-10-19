@@ -1,37 +1,47 @@
-
+from dataclasses import dataclass
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from app.rag.loaders import LoadedSegment
+
+
+@dataclass(frozen=True)
+class Chunk:
+    """Represents a text chunk with its source page number."""
+
+    text: str
+    page: int | None
 
 
 def chunk_text(
-    text: str,
+    segments: list[LoadedSegment],
     chunk_size: int = 1000,
     chunk_overlap: int = 150,
-) -> list[str]:
+) -> list[Chunk]:
     """
-    Split text into chunks while preserving natural text boundaries.
-
-    The splitter prefers paragraph breaks, line breaks, spaces,
-    and finally individual characters.
+    Split loaded document segments into chunks while preserving natural text boundaries
+    and page boundaries.
 
     Args:
-        text: Source text to split.
+        segments: List of LoadedSegment objects to split.
         chunk_size: Maximum chunk size measured in characters.
         chunk_overlap: Desired overlap between consecutive chunks.
 
     Returns:
-        A list of non-empty text chunks.
+        A list of non-empty Chunk objects.
 
     Raises:
-        TypeError: If text or numeric parameters have invalid types.
+        TypeError: If segments or numeric parameters have invalid types.
         ValueError: If chunk_size or chunk_overlap is out of range.
     """
-    # Validate the source text.
-    if not isinstance(text, str):
-        raise TypeError("text must be a string.")
+    # Validate segments input.
+    if not isinstance(segments, list):
+        raise TypeError("segments must be a list of LoadedSegment instances.")
+
+    for segment in segments:
+        if not isinstance(segment, LoadedSegment):
+            raise TypeError("segments must contain only LoadedSegment instances.")
 
     # Reject booleans and non-integer values explicitly.
-    # In Python, bool is a subclass of int, so isinstance alone
-    # would also accept True and False.
     if isinstance(chunk_size, bool) or not isinstance(chunk_size, int):
         raise TypeError("chunk_size must be an integer.")
 
@@ -53,7 +63,7 @@ def chunk_text(
         )
 
     # Return an empty list for empty or whitespace-only input.
-    if not text.strip():
+    if not segments:
         return []
 
     # Configure the splitter to prefer natural text boundaries.
@@ -65,5 +75,13 @@ def chunk_text(
         strip_whitespace=True,
     )
 
-    # Split the text and return the resulting chunks.
-    return splitter.split_text(text)
+    chunks = []
+    for segment in segments:
+        if not segment.text or not segment.text.strip():
+            continue
+        page_texts = splitter.split_text(segment.text)
+        for text in page_texts:
+            if text and text.strip():
+                chunks.append(Chunk(text=text.strip(), page=segment.page))
+
+    return chunks

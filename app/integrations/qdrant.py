@@ -1,10 +1,10 @@
-
 from functools import lru_cache
 from uuid import uuid4
 
 from qdrant_client import QdrantClient, models
 
 from app.integrations.embeddings import EMBEDDING_DIMENSION
+from app.rag.chunking import Chunk
 
 
 COLLECTION_NAME = "documents"
@@ -35,7 +35,7 @@ def create_collection() -> None:
 
 def save_chunks(
     document_id: str,
-    chunks: list[str],
+    chunks: list[Chunk],
     vectors: list[list[float]],
 ) -> list[str]:
     """Save document chunks and their embeddings to Qdrant."""
@@ -48,8 +48,8 @@ def save_chunks(
     if len(chunks) != len(vectors):
         raise ValueError("chunks and vectors must have the same length.")
 
-    if any(not isinstance(chunk, str) or not chunk.strip() for chunk in chunks):
-        raise ValueError("chunks cannot contain empty or non-string values.")
+    if any(not isinstance(chunk, Chunk) or not chunk.text.strip() for chunk in chunks):
+        raise ValueError("chunks cannot contain empty or non-Chunk values.")
 
     if any(len(vector) != EMBEDDING_DIMENSION for vector in vectors):
         raise ValueError(
@@ -71,7 +71,8 @@ def save_chunks(
             payload={
                 "document_id": document_id,
                 "chunk_index": index,
-                "text": chunk,
+                "text": chunk.text,
+                "page": chunk.page,
             },
         )
         for index, (point_id, chunk, vector) in enumerate(
@@ -160,6 +161,7 @@ def search_chunks(
             "document_id": point.payload.get("document_id"),
             "chunk_index": point.payload.get("chunk_index"),
             "text": point.payload.get("text"),
+            "page": point.payload.get("page"),
             "score": point.score,
         }
         for point in results

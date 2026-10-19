@@ -1,8 +1,16 @@
-
+from dataclasses import dataclass
 from pathlib import Path
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
+
+
+@dataclass(frozen=True)
+class LoadedSegment:
+    """Represents a text segment with its source page number."""
+
+    text: str
+    page: int | None
 
 
 class DocumentLoadError(Exception):
@@ -11,15 +19,15 @@ class DocumentLoadError(Exception):
     pass
 
 
-def load_txt(file_path: str | Path) -> str:
+def load_txt(file_path: str | Path) -> list[LoadedSegment]:
     """
-    Load text from a UTF-8 text file.
+    Load text from a UTF-8 text file as a single segment with page=None.
 
     Args:
         file_path: Path to the text file (.txt).
 
     Returns:
-        File content as a string.
+        A list containing a single LoadedSegment.
 
     Raises:
         FileNotFoundError: If the file does not exist.
@@ -70,18 +78,18 @@ def load_txt(file_path: str | Path) -> str:
             f"The loaded file {path} is empty or contains only whitespace."
         )
 
-    return content
+    return [LoadedSegment(text=content, page=None)]
 
 
-def load_pdf(file_path: str | Path) -> str:
+def load_pdf(file_path: str | Path) -> list[LoadedSegment]:
     """
-    Extract text from a PDF file.
+    Extract text from a PDF file into page-associated segments.
 
     Args:
         file_path: Path to the PDF file (.pdf).
 
     Returns:
-        Extracted text with pages separated by blank lines.
+        A list of LoadedSegment objects containing page text and 1-based page numbers.
 
     Raises:
         FileNotFoundError: If the file does not exist.
@@ -121,34 +129,32 @@ def load_pdf(file_path: str | Path) -> str:
         ) from e
 
     # Extract text from each page, skipping pages without readable text.
-    pages_text = []
+    segments = []
 
     try:
-        for page in reader.pages:
+        for index, page in enumerate(reader.pages):
             page_text = page.extract_text()
 
             if page_text and page_text.strip():
-                pages_text.append(page_text.strip())
+                # 1-based page number
+                segments.append(LoadedSegment(text=page_text.strip(), page=index + 1))
 
     except (PdfReadError, OSError) as e:
         raise DocumentLoadError(
             f"Failed to extract text from PDF file {path}: {e}"
         ) from e
 
-    # Separate page contents with blank lines.
-    full_text = "\n\n".join(pages_text)
-
     # Scanned PDFs may contain images without extractable text.
-    if not full_text.strip():
+    if not segments:
         raise ValueError(
             f"PDF file {path} contains no extractable text. "
             "It may consist only of scanned images."
         )
 
-    return full_text
+    return segments
 
 
-def load_document(file_path: str | Path) -> str:
+def load_document(file_path: str | Path) -> list[LoadedSegment]:
     """
     Select the appropriate loader based on the file extension.
 
@@ -156,7 +162,7 @@ def load_document(file_path: str | Path) -> str:
         file_path: Path to a supported document (.txt or .pdf).
 
     Returns:
-        Extracted document text as a string.
+        A list of LoadedSegment objects extracted from the document.
 
     Raises:
         ValueError: If the file format is unsupported.

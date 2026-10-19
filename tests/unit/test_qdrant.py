@@ -1,10 +1,10 @@
-
 from unittest.mock import MagicMock, patch
 
 import pytest
 from qdrant_client import models
 
 from app.integrations import qdrant
+from app.rag.chunking import Chunk
 
 
 @pytest.fixture
@@ -44,7 +44,10 @@ def test_create_collection_does_not_recreate_existing_collection(
 def test_save_chunks_stores_text_and_vectors(mock_client):
     mock_client.collection_exists.return_value = True
 
-    chunks = ["First chunk", "Second chunk"]
+    chunks = [
+        Chunk(text="First chunk", page=1),
+        Chunk(text="Second chunk", page=None),
+    ]
     vectors = [[0.1] * 384, [0.2] * 384]
 
     point_ids = qdrant.save_chunks("doc-1", chunks, vectors)
@@ -64,31 +67,33 @@ def test_save_chunks_stores_text_and_vectors(mock_client):
         "document_id": "doc-1",
         "chunk_index": 0,
         "text": "First chunk",
+        "page": 1,
     }
     assert points[1].payload == {
         "document_id": "doc-1",
         "chunk_index": 1,
         "text": "Second chunk",
+        "page": None,
     }
 
 
 def test_save_chunks_rejects_empty_document_id(mock_client):
     with pytest.raises(ValueError, match="document_id"):
-        qdrant.save_chunks("", ["chunk"], [[0.1] * 384])
+        qdrant.save_chunks("", [Chunk(text="chunk", page=1)], [[0.1] * 384])
 
     mock_client.upsert.assert_not_called()
 
 
 def test_save_chunks_rejects_different_list_lengths(mock_client):
     with pytest.raises(ValueError, match="same length"):
-        qdrant.save_chunks("doc-1", ["chunk"], [])
+        qdrant.save_chunks("doc-1", [Chunk(text="chunk", page=1)], [])
 
     mock_client.upsert.assert_not_called()
 
 
 def test_save_chunks_rejects_wrong_vector_dimension(mock_client):
     with pytest.raises(ValueError, match="dimensions"):
-        qdrant.save_chunks("doc-1", ["chunk"], [[0.1, 0.2]])
+        qdrant.save_chunks("doc-1", [Chunk(text="chunk", page=1)], [[0.1, 0.2]])
 
     mock_client.upsert.assert_not_called()
 
@@ -117,6 +122,7 @@ def test_search_chunks_returns_results(mock_client):
                 "document_id": "doc-1",
                 "chunk_index": 0,
                 "text": "Relevant text",
+                "page": 2,
             },
             score=0.95,
         )
@@ -129,6 +135,7 @@ def test_search_chunks_returns_results(mock_client):
             "document_id": "doc-1",
             "chunk_index": 0,
             "text": "Relevant text",
+            "page": 2,
             "score": 0.95,
         }
     ]

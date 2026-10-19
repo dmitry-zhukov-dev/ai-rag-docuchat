@@ -1,4 +1,3 @@
-
 import pytest
 from pathlib import Path
 from pypdf import PdfWriter
@@ -6,6 +5,7 @@ from pypdf import PdfWriter
 from app.rag import loaders
 from app.rag.loaders import (
     DocumentLoadError,
+    LoadedSegment,
     load_document,
     load_pdf,
     load_txt,
@@ -17,12 +17,13 @@ from app.rag.loaders import (
 # ==========================================
 
 def test_load_txt_success(tmp_path: Path) -> None:
-    """Read a valid non-empty UTF-8 text file."""
+    """Read a valid non-empty UTF-8 text file and return a segment with page=None."""
     txt_file = tmp_path / "sample.txt"
     content = "Line 1: Hello World\nLine 2: RAG Pipeline"
     txt_file.write_text(content, encoding="utf-8")
 
-    assert load_txt(txt_file) == content
+    segments = load_txt(txt_file)
+    assert segments == [LoadedSegment(text=content, page=None)]
 
 
 def test_load_txt_supports_string_path(tmp_path: Path) -> None:
@@ -30,7 +31,8 @@ def test_load_txt_supports_string_path(tmp_path: Path) -> None:
     txt_file = tmp_path / "sample.txt"
     txt_file.write_text("Hello", encoding="utf-8")
 
-    assert load_txt(str(txt_file)) == "Hello"
+    segments = load_txt(str(txt_file))
+    assert segments == [LoadedSegment(text="Hello", page=None)]
 
 
 def test_load_txt_file_not_found(tmp_path: Path) -> None:
@@ -59,7 +61,8 @@ def test_load_txt_uppercase_extension(tmp_path: Path) -> None:
     txt_file = tmp_path / "sample.TXT"
     txt_file.write_text("Hello", encoding="utf-8")
 
-    assert load_txt(txt_file) == "Hello"
+    segments = load_txt(txt_file)
+    assert segments == [LoadedSegment(text="Hello", page=None)]
 
 
 @pytest.mark.parametrize("content", ["", "   \n\t  "])
@@ -104,11 +107,10 @@ def test_load_pdf_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Extract and combine text from multiple PDF pages."""
+    """Extract and associate text with 1-based page numbers from multiple PDF pages."""
     pdf_path = tmp_path / "sample.pdf"
     create_blank_pdf(pdf_path)
 
-    # Simulate pages containing extracted text.
     class FakePage:
         def __init__(self, text: str) -> None:
             self.text = text
@@ -125,9 +127,46 @@ def test_load_pdf_success(
 
     monkeypatch.setattr(loaders, "PdfReader", FakeReader)
 
-    result = load_pdf(pdf_path)
+    segments = load_pdf(pdf_path)
 
-    assert result == "First page\n\nSecond page"
+    assert segments == [
+        LoadedSegment(text="First page", page=1),
+        LoadedSegment(text="Second page", page=2),
+    ]
+
+
+def test_load_pdf_skips_empty_pages_retaining_original_numbers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Skip empty pages while retaining original 1-based page numbers for non-empty pages."""
+    pdf_path = tmp_path / "sample.pdf"
+    create_blank_pdf(pdf_path)
+
+    class FakePage:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def extract_text(self) -> str:
+            return self.text
+
+    class FakeReader:
+        def __init__(self, file_path: str) -> None:
+            self.pages = [
+                FakePage(""),  # page 1 empty
+                FakePage("Page two text"),  # page 2
+                FakePage("   "),  # page 3 whitespace
+                FakePage("Page four text"),  # page 4
+            ]
+
+    monkeypatch.setattr(loaders, "PdfReader", FakeReader)
+
+    segments = load_pdf(pdf_path)
+
+    assert segments == [
+        LoadedSegment(text="Page two text", page=2),
+        LoadedSegment(text="Page four text", page=4),
+    ]
 
 
 def test_load_pdf_file_not_found(tmp_path: Path) -> None:
@@ -169,7 +208,8 @@ def test_load_pdf_uppercase_extension(
 
     monkeypatch.setattr(loaders, "PdfReader", FakeReader)
 
-    assert load_pdf(pdf_path) == "PDF content"
+    segments = load_pdf(pdf_path)
+    assert segments == [LoadedSegment(text="PDF content", page=1)]
 
 
 def test_load_pdf_without_extractable_text(tmp_path: Path) -> None:
@@ -202,7 +242,8 @@ def test_load_document_txt(tmp_path: Path) -> None:
     txt_file = tmp_path / "document.txt"
     txt_file.write_text("Document text", encoding="utf-8")
 
-    assert load_document(txt_file) == "Document text"
+    segments = load_document(txt_file)
+    assert segments == [LoadedSegment(text="Document text", page=None)]
 
 
 def test_load_document_pdf(
@@ -213,13 +254,14 @@ def test_load_document_pdf(
     pdf_path = tmp_path / "document.pdf"
     create_blank_pdf(pdf_path)
 
-    def fake_load_pdf(file_path: str | Path) -> str:
+    def fake_load_pdf(file_path: str | Path) -> list[LoadedSegment]:
         assert Path(file_path) == pdf_path
-        return "Extracted PDF text"
+        return [LoadedSegment(text="Extracted PDF text", page=1)]
 
     monkeypatch.setattr(loaders, "load_pdf", fake_load_pdf)
 
-    assert load_document(pdf_path) == "Extracted PDF text"
+    segments = load_document(pdf_path)
+    assert segments == [LoadedSegment(text="Extracted PDF text", page=1)]
 
 
 def test_load_document_uppercase_extension(tmp_path: Path) -> None:
@@ -227,7 +269,8 @@ def test_load_document_uppercase_extension(tmp_path: Path) -> None:
     txt_file = tmp_path / "document.TXT"
     txt_file.write_text("Document text", encoding="utf-8")
 
-    assert load_document(txt_file) == "Document text"
+    segments = load_document(txt_file)
+    assert segments == [LoadedSegment(text="Document text", page=None)]
 
 
 def test_load_document_unsupported_extension(tmp_path: Path) -> None:
