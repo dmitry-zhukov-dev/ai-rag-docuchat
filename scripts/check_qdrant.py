@@ -17,6 +17,8 @@ def main() -> None:
 
         qdrant.save_chunks(
             document_id=document_id,
+            workspace_id="smoke-test",
+            filename="sample_document.txt",
             chunks=[
                 "Python is a programming language.",
                 "The weather is sunny today.",

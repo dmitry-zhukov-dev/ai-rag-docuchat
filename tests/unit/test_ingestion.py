@@ -28,6 +28,8 @@ def test_ingest_document_processes_and_saves_chunks(
     result = ingestion.ingest_document(
         file_path="sample.pdf",
         document_id="doc-1",
+        workspace_id="ws-1",
+        filename="sample.pdf",
     )
 
     assert result == 2
@@ -36,6 +38,8 @@ def test_ingest_document_processes_and_saves_chunks(
     mock_embed.assert_called_once_with(["First chunk", "Second chunk"])
     mock_save.assert_called_once_with(
         document_id="doc-1",
+        workspace_id="ws-1",
+        filename="sample.pdf",
         chunks=chunks,
         vectors=[[0.1] * 384, [0.2] * 384],
     )
@@ -57,6 +61,8 @@ def test_ingest_document_returns_zero_when_no_chunks(
     result = ingestion.ingest_document(
         file_path="empty.txt",
         document_id="doc-2",
+        workspace_id="ws-1",
+        filename="empty.txt",
     )
 
     assert result == 0
@@ -80,6 +86,8 @@ def test_ingest_document_stops_if_loading_fails(
         ingestion.ingest_document(
             file_path="image.png",
             document_id="doc-3",
+            workspace_id="ws-1",
+            filename="image.png",
         )
 
     mock_chunk.assert_not_called()
@@ -106,6 +114,8 @@ def test_ingest_document_stops_if_embedding_fails(
         ingestion.ingest_document(
             file_path="sample.txt",
             document_id="doc-4",
+            workspace_id="ws-1",
+            filename="sample.txt",
         )
 
     mock_save.assert_not_called()
@@ -129,6 +139,8 @@ def test_ingest_document_returns_chunk_count(
     result = ingestion.ingest_document(
         file_path="sample.pdf",
         document_id="doc-5",
+        workspace_id="ws-1",
+        filename="sample.pdf",
     )
 
     assert result == 1

@@ -50,7 +50,13 @@ def test_save_chunks_stores_text_and_vectors(mock_client):
     ]
     vectors = [[0.1] * 384, [0.2] * 384]
 
-    point_ids = qdrant.save_chunks("doc-1", chunks, vectors)
+    point_ids = qdrant.save_chunks(
+        document_id="doc-1",
+        workspace_id="ws-1",
+        filename="doc.pdf",
+        chunks=chunks,
+        vectors=vectors,
+    )
 
     assert len(point_ids) == 2
     assert len(set(point_ids)) == 2
@@ -64,42 +70,124 @@ def test_save_chunks_stores_text_and_vectors(mock_client):
     points = call["points"]
     assert len(points) == 2
     assert points[0].payload == {
+        "workspace_id": "ws-1",
         "document_id": "doc-1",
+        "chunk_id": "doc-1:0",
         "chunk_index": 0,
         "text": "First chunk",
+        "filename": "doc.pdf",
         "page": 1,
     }
     assert points[1].payload == {
+        "workspace_id": "ws-1",
         "document_id": "doc-1",
+        "chunk_id": "doc-1:1",
         "chunk_index": 1,
         "text": "Second chunk",
+        "filename": "doc.pdf",
         "page": None,
     }
 
 
+def test_save_chunks_uses_deterministic_point_ids(mock_client):
+    """Re-indexing the same document overwrites the same points."""
+    mock_client.collection_exists.return_value = True
+
+    chunks = [Chunk(text="chunk text", page=1)]
+    vectors = [[0.1] * 384]
+
+    first_ids = qdrant.save_chunks(
+        document_id="doc-1",
+        workspace_id="ws-1",
+        filename="doc.pdf",
+        chunks=chunks,
+        vectors=vectors,
+    )
+    second_ids = qdrant.save_chunks(
+        document_id="doc-1",
+        workspace_id="ws-1",
+        filename="doc.pdf",
+        chunks=chunks,
+        vectors=vectors,
+    )
+
+    assert first_ids == second_ids
+    assert len(first_ids) == 1
+
+
 def test_save_chunks_rejects_empty_document_id(mock_client):
     with pytest.raises(ValueError, match="document_id"):
-        qdrant.save_chunks("", [Chunk(text="chunk", page=1)], [[0.1] * 384])
+        qdrant.save_chunks(
+            document_id="",
+            workspace_id="ws-1",
+            filename="doc.pdf",
+            chunks=[Chunk(text="chunk", page=1)],
+            vectors=[[0.1] * 384],
+        )
+
+    mock_client.upsert.assert_not_called()
+
+
+def test_save_chunks_rejects_empty_workspace_id(mock_client):
+    with pytest.raises(ValueError, match="workspace_id"):
+        qdrant.save_chunks(
+            document_id="doc-1",
+            workspace_id="",
+            filename="doc.pdf",
+            chunks=[Chunk(text="chunk", page=1)],
+            vectors=[[0.1] * 384],
+        )
+
+    mock_client.upsert.assert_not_called()
+
+
+def test_save_chunks_rejects_empty_filename(mock_client):
+    with pytest.raises(ValueError, match="filename"):
+        qdrant.save_chunks(
+            document_id="doc-1",
+            workspace_id="ws-1",
+            filename="",
+            chunks=[Chunk(text="chunk", page=1)],
+            vectors=[[0.1] * 384],
+        )
 
     mock_client.upsert.assert_not_called()
 
 
 def test_save_chunks_rejects_different_list_lengths(mock_client):
     with pytest.raises(ValueError, match="same length"):
-        qdrant.save_chunks("doc-1", [Chunk(text="chunk", page=1)], [])
+        qdrant.save_chunks(
+            document_id="doc-1",
+            workspace_id="ws-1",
+            filename="doc.pdf",
+            chunks=[Chunk(text="chunk", page=1)],
+            vectors=[],
+        )
 
     mock_client.upsert.assert_not_called()
 
 
 def test_save_chunks_rejects_wrong_vector_dimension(mock_client):
     with pytest.raises(ValueError, match="dimensions"):
-        qdrant.save_chunks("doc-1", [Chunk(text="chunk", page=1)], [[0.1, 0.2]])
+        qdrant.save_chunks(
+            document_id="doc-1",
+            workspace_id="ws-1",
+            filename="doc.pdf",
+            chunks=[Chunk(text="chunk", page=1)],
+            vectors=[[0.1, 0.2]],
+        )
 
     mock_client.upsert.assert_not_called()
 
 
 def test_save_chunks_returns_empty_list_for_no_chunks(mock_client):
-    result = qdrant.save_chunks("doc-1", [], [])
+    result = qdrant.save_chunks(
+        document_id="doc-1",
+        workspace_id="ws-1",
+        filename="doc.pdf",
+        chunks=[],
+        vectors=[],
+    )
 
     assert result == []
     mock_client.upsert.assert_not_called()
@@ -119,8 +207,11 @@ def test_search_chunks_returns_results(mock_client):
     mock_client.query_points.return_value.points = [
         MagicMock(
             payload={
+                "workspace_id": "ws-1",
                 "document_id": "doc-1",
+                "chunk_id": "doc-1:0",
                 "chunk_index": 0,
+                "filename": "doc.pdf",
                 "text": "Relevant text",
                 "page": 2,
             },
@@ -132,8 +223,11 @@ def test_search_chunks_returns_results(mock_client):
 
     assert result == [
         {
+            "workspace_id": "ws-1",
             "document_id": "doc-1",
+            "chunk_id": "doc-1:0",
             "chunk_index": 0,
+            "filename": "doc.pdf",
             "text": "Relevant text",
             "page": 2,
             "score": 0.95,

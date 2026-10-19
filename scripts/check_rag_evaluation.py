@@ -20,6 +20,8 @@ def main() -> None:
         chunks_count = ingest_document(
             file_path=DOCUMENT_PATH,
             document_id=document_id,
+            workspace_id="smoke-test",
+            filename=DOCUMENT_PATH,
         )
         print(f"Document indexed. Chunks: {chunks_count}")
 
