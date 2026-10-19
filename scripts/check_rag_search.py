@@ -23,7 +23,13 @@ def main() -> None:
         vectors = embed_texts(chunks)
 
         qdrant.create_collection()
-        qdrant.save_chunks(document_id, chunks, vectors)
+        qdrant.save_chunks(
+            document_id=document_id,
+            workspace_id="smoke-test",
+            filename="sample_document.txt",
+            chunks=chunks,
+            vectors=vectors,
+        )
 
         question = "Which tool can find information by meaning using vectors?"
         query_vector = embed_query(question)

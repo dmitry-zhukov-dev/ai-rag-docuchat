@@ -7,9 +7,16 @@ from app.services.file_storage import UPLOAD_DIR
 
 def test_document_upload(client: TestClient, monkeypatch):
     # Replace real ingestion to avoid writing test data to Qdrant.
-    def fake_ingest_document(file_path: str, document_id: str) -> int:
+    def fake_ingest_document(
+        file_path: str,
+        document_id: str,
+        workspace_id: str,
+        filename: str,
+    ) -> int:
         assert file_path
         assert document_id
+        assert workspace_id
+        assert filename
         return 1
 
     monkeypatch.setattr(

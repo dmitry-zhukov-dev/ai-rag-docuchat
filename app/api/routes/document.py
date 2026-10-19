@@ -181,6 +181,8 @@ async def upload_document(
             ingest_document(
                 file_path=str(saved_path),
                 document_id=str(doc.id),
+                workspace_id=str(workspace_id),
+                filename=doc.file_name,
             )
         except Exception:
             service.update_document(

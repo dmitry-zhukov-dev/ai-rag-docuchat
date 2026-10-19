@@ -8,7 +8,7 @@
 |---|---|---|
 | 0. Audit and baseline | Completed | The initial repository audit was completed. Repeat it only when needed to establish the current branch, working tree, and actual code state. |
 | 1. Ingestion pipeline | Implementation completed; runtime unverified | Page-aware PDF/TXT loading and chunk metadata changes were implemented and statically reviewed. Tests were updated but have not been executed. |
-| 2. Retrieval and Qdrant metadata | Partially implemented | Page metadata is stored and returned. Workspace/document filtering and all required metadata must be audited against the complete requirements. |
+| 2. Retrieval and Qdrant metadata | Partially implemented | §2.1 payload structure implemented and statically reviewed: Qdrant points now carry workspace_id, document_id, chunk_id, chunk_index, text, filename, page; chunk_id is document-scoped and stable; point IDs are deterministic so re-indexing is idempotent; search returns the new fields. Runtime unverified. §2.2 workspace-side filtering and §2.3 source consistency remain. |
 | 3. RAG generation | In progress / next focus | Audit retrieval, context construction, Gemini generation, error handling, insufficient-context behavior, and structured results. Preserve actual source metadata. |
 | 4. Sources and conversation history | Not started as a complete stage | Implement verifiable sources and ensure source information survives history persistence and retrieval. |
 | 5. Session security and isolation | Not started as a complete stage | Audit and implement session-based ownership checks throughout the API and services. |

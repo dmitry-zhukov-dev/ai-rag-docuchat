@@ -1,5 +1,5 @@
 from functools import lru_cache
-from uuid import uuid4
+from uuid import NAMESPACE_DNS, uuid5
 
 from qdrant_client import QdrantClient, models
 
@@ -9,6 +9,20 @@ from app.rag.chunking import Chunk
 
 COLLECTION_NAME = "documents"
 QDRANT_URL = "http://localhost:6333"
+
+# Namespace for deterministic chunk point IDs. Deriving the point ID from
+# the chunk identifier makes repeated indexing idempotent: re-indexing the
+# same document overwrites the same points instead of creating duplicates.
+CHUNK_POINT_NAMESPACE = uuid5(NAMESPACE_DNS, "docuchat-chunk-point")
+
+
+def make_chunk_id(document_id: str, chunk_index: int) -> str:
+    """Return a chunk identifier unique within the collection.
+
+    The document identifier is part of the chunk identifier, so the chunk
+    index alone is never relied upon for uniqueness.
+    """
+    return f"{document_id}:{chunk_index}"
 
 
 @lru_cache(maxsize=1)
@@ -34,13 +48,27 @@ def create_collection() -> None:
 
 
 def save_chunks(
+    *,
     document_id: str,
+    workspace_id: str,
+    filename: str,
     chunks: list[Chunk],
     vectors: list[list[float]],
 ) -> list[str]:
-    """Save document chunks and their embeddings to Qdrant."""
+    """Save document chunks and their embeddings to Qdrant.
+
+    Each point payload carries the metadata required for retrieval and
+    source attribution: workspace_id, document_id, chunk_id, chunk_index,
+    text, filename, and page (None for TXT documents).
+    """
     if not isinstance(document_id, str) or not document_id.strip():
         raise ValueError("document_id cannot be empty.")
+
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise ValueError("workspace_id cannot be empty.")
+
+    if not isinstance(filename, str) or not filename.strip():
+        raise ValueError("filename cannot be empty.")
 
     if not isinstance(chunks, list) or not isinstance(vectors, list):
         raise TypeError("chunks and vectors must be lists.")
@@ -62,23 +90,29 @@ def save_chunks(
     client = get_qdrant_client()
     create_collection()
 
-    point_ids = [str(uuid4()) for _ in chunks]
+    points = []
+    point_ids = []
 
-    points = [
-        models.PointStruct(
-            id=point_id,
-            vector=vector,
-            payload={
-                "document_id": document_id,
-                "chunk_index": index,
-                "text": chunk.text,
-                "page": chunk.page,
-            },
+    for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
+        chunk_id = make_chunk_id(document_id, index)
+        point_id = str(uuid5(CHUNK_POINT_NAMESPACE, chunk_id))
+        point_ids.append(point_id)
+
+        points.append(
+            models.PointStruct(
+                id=point_id,
+                vector=vector,
+                payload={
+                    "workspace_id": workspace_id,
+                    "document_id": document_id,
+                    "chunk_id": chunk_id,
+                    "chunk_index": index,
+                    "text": chunk.text,
+                    "filename": filename,
+                    "page": chunk.page,
+                },
+            )
         )
-        for index, (point_id, chunk, vector) in enumerate(
-            zip(point_ids, chunks, vectors, strict=True)
-        )
-    ]
 
     client.upsert(
         collection_name=COLLECTION_NAME,
@@ -158,8 +192,11 @@ def search_chunks(
 
     return [
         {
+            "workspace_id": point.payload.get("workspace_id"),
             "document_id": point.payload.get("document_id"),
+            "chunk_id": point.payload.get("chunk_id"),
             "chunk_index": point.payload.get("chunk_index"),
+            "filename": point.payload.get("filename"),
             "text": point.payload.get("text"),
             "page": point.payload.get("page"),
             "score": point.score,

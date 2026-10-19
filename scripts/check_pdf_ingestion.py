@@ -15,6 +15,8 @@ def main() -> None:
         chunk_count = ingest_document(
             file_path="scripts/sample_document.pdf",
             document_id=document_id,
+            workspace_id="smoke-test",
+            filename="sample_document.pdf",
         )
 
         print(f"PDF indexed. Chunks saved: {chunk_count}")
