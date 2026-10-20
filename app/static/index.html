@@ -16,7 +16,7 @@
                 <button id="create-workspace-btn" class="btn btn-primary">+ New Workspace</button>
             </div>
             <div id="workspace-list" class="workspace-list">
-                <!-- Workspace items will be rendered here by app.js -->
+                <!-- Workspace items are rendered here -->
             </div>
             <div id="workspace-loading" class="loading hidden">
                 <div class="spinner"></div>
@@ -32,21 +32,26 @@
                 <h2>Welcome to DocuChat</h2>
                 <p>Select a workspace from the sidebar to get started, or create a new one.</p>
             </div>
+
             <div id="workspace-view" class="workspace-view hidden">
                 <div class="workspace-view-header">
-                    <h2 id="workspace-name">Workspace Name</h2>
+                    <h2 id="workspace-name">Workspace</h2>
+                    <button id="delete-workspace-btn" class="btn btn-delete">Delete Workspace</button>
                 </div>
-                
+
                 <div class="document-section">
                     <h3>Documents</h3>
                     <div class="upload-controls">
                         <input type="file" id="file-input" accept=".txt,.pdf">
                         <button id="upload-btn" class="btn btn-primary">Upload</button>
+                        <button id="refresh-documents-btn" class="btn">Refresh</button>
                     </div>
+                    <p class="hint">Select documents to restrict the next question. If none are selected, all ready documents are used.</p>
                     <div id="upload-loading" class="loading hidden">Uploading...</div>
                     <div id="document-list" class="document-list">
-                        <!-- Documents rendered here -->
+                        <!-- Documents are rendered here -->
                     </div>
+                    <div id="document-error" class="error-message hidden"></div>
                 </div>
 
                 <div class="chat-section">
@@ -58,15 +63,63 @@
                     <div id="chat-window" class="chat-window hidden">
                         <h4 id="chat-title">Conversation</h4>
                         <div id="message-history" class="message-history"></div>
+                        <div id="chat-loading" class="loading hidden">Thinking...</div>
                         <div class="chat-input-area">
-                            <input type="text" id="chat-input" placeholder="Ask a question...">
+                            <input type="text" id="chat-input" placeholder="Ask a question about your documents...">
                             <button id="send-chat-btn" class="btn btn-primary">Send</button>
                         </div>
                     </div>
                 </div>
+
+                <div class="evaluation-section">
+                    <h3>Evaluation</h3>
+                    <div class="evaluation-layout">
+                        <div class="evaluation-cases">
+                            <button id="new-evaluation-btn" class="btn">+ New Test Case</button>
+                            <div id="evaluation-list" class="evaluation-list"></div>
+                        </div>
+                        <div id="evaluation-editor" class="evaluation-editor hidden">
+                            <h4 id="evaluation-editor-title">Test Case</h4>
+                            <label>Name <input type="text" id="evaluation-name" maxlength="255"></label>
+                            <label>Question <textarea id="evaluation-question" rows="2"></textarea></label>
+                            <label>Reference answer (optional) <textarea id="evaluation-reference" rows="2"></textarea></label>
+                            <label>Required facts (one per line, optional) <textarea id="evaluation-facts" rows="3"></textarea></label>
+                            <label>Expected sources (document IDs, comma separated, optional) <input type="text" id="evaluation-expected-sources"></label>
+                            <div class="evaluation-documents">
+                                <p>Documents to evaluate against:</p>
+                                <div id="evaluation-document-list"></div>
+                            </div>
+                            <div class="evaluation-actions">
+                                <button id="evaluation-save-btn" class="btn btn-primary">Save</button>
+                                <button id="evaluation-run-btn" class="btn">Run Evaluation</button>
+                                <button id="evaluation-delete-btn" class="btn btn-delete">Delete</button>
+                                <button id="evaluation-cancel-btn" class="btn">Cancel</button>
+                            </div>
+                        </div>
+                        <div id="evaluation-results" class="evaluation-results hidden">
+                            <h4>Run Results</h4>
+                            <div id="evaluation-run-status" class="loading hidden">Running evaluation...</div>
+                            <table id="evaluation-results-table" class="results-table hidden">
+                                <thead>
+                                    <tr>
+                                        <th>Metric</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="evaluation-results-body"></tbody>
+                            </table>
+                            <div id="evaluation-answer" class="evaluation-answer hidden"></div>
+                            <div id="evaluation-sources" class="evaluation-sources hidden"></div>
+                            <div id="evaluation-error" class="error-message hidden"></div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </main>
     </div>
+
+    <div id="app-error" class="toast hidden"></div>
 
     <script src="/static/js/app.js"></script>
 </body>

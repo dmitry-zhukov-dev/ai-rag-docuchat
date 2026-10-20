@@ -196,7 +196,7 @@ def test_save_chunks_returns_empty_list_for_no_chunks(mock_client):
 def test_search_chunks_returns_empty_if_collection_missing(mock_client):
     mock_client.collection_exists.return_value = False
 
-    result = qdrant.search_chunks([0.1] * 384)
+    result = qdrant.search_chunks([0.1] * 384, workspace_id="ws-1")
 
     assert result == []
     mock_client.query_points.assert_not_called()
@@ -219,7 +219,7 @@ def test_search_chunks_returns_results(mock_client):
         )
     ]
 
-    result = qdrant.search_chunks([0.1] * 384, limit=3)
+    result = qdrant.search_chunks([0.1] * 384, workspace_id="ws-1", limit=3)
 
     assert result == [
         {
@@ -238,24 +238,87 @@ def test_search_chunks_returns_results(mock_client):
     assert call["collection_name"] == qdrant.COLLECTION_NAME
     assert call["limit"] == 3
     assert call["with_payload"] is True
-    assert call["query_filter"] is None
+
+    # Every search is scoped to the calling workspace.
+    query_filter = call["query_filter"]
+    assert len(query_filter.must) == 1
+    assert query_filter.must[0].key == "workspace_id"
+    assert query_filter.must[0].match.value == "ws-1"
 
 
 def test_search_chunks_filters_by_document_id(mock_client):
     mock_client.collection_exists.return_value = True
     mock_client.query_points.return_value.points = []
 
-    qdrant.search_chunks([0.1] * 384, document_id="doc-1")
+    qdrant.search_chunks([0.1] * 384, workspace_id="ws-1", document_id="doc-1")
 
     query_filter = mock_client.query_points.call_args.kwargs["query_filter"]
 
-    assert query_filter.must[0].key == "document_id"
-    assert query_filter.must[0].match.value == "doc-1"
+    assert len(query_filter.must) == 2
+    assert query_filter.must[0].key == "workspace_id"
+    assert query_filter.must[0].match.value == "ws-1"
+    assert query_filter.must[1].key == "document_id"
+    assert query_filter.must[1].match.value == "doc-1"
+
+
+def test_search_chunks_combines_workspace_and_document_ids_filters(
+    mock_client,
+):
+    mock_client.collection_exists.return_value = True
+    mock_client.query_points.return_value.points = []
+
+    qdrant.search_chunks(
+        [0.1] * 384,
+        workspace_id="ws-1",
+        document_ids=["doc-1", "doc-2"],
+    )
+
+    query_filter = mock_client.query_points.call_args.kwargs["query_filter"]
+
+    assert len(query_filter.must) == 1
+    assert query_filter.must[0].key == "workspace_id"
+    assert query_filter.must[0].match.value == "ws-1"
+
+    assert len(query_filter.should) == 2
+    assert query_filter.should[0].key == "document_id"
+    assert query_filter.should[0].match.value == "doc-1"
+    assert query_filter.should[1].match.value == "doc-2"
+    assert query_filter.min_should.conditions == 1
+
+
+def test_search_chunks_empty_document_ids_return_no_results(mock_client):
+    """An empty selection must never fall back to an unrestricted search."""
+    mock_client.collection_exists.return_value = True
+
+    result = qdrant.search_chunks(
+        [0.1] * 384,
+        workspace_id="ws-1",
+        document_ids=[],
+    )
+
+    assert result == []
+    mock_client.query_points.assert_not_called()
+
+
+def test_search_chunks_returns_empty_list_when_no_points_match(mock_client):
+    mock_client.collection_exists.return_value = True
+    mock_client.query_points.return_value.points = []
+
+    result = qdrant.search_chunks([0.1] * 384, workspace_id="ws-1")
+
+    assert result == []
+
+
+def test_search_chunks_rejects_empty_workspace_id(mock_client):
+    with pytest.raises(ValueError, match="workspace_id"):
+        qdrant.search_chunks([0.1] * 384, workspace_id="")
+
+    mock_client.query_points.assert_not_called()
 
 
 @pytest.mark.parametrize("limit", [0, -1])
 def test_search_chunks_rejects_invalid_limit(mock_client, limit):
     with pytest.raises(ValueError, match="limit"):
-        qdrant.search_chunks([0.1] * 384, limit=limit)
+        qdrant.search_chunks([0.1] * 384, workspace_id="ws-1", limit=limit)
 
     mock_client.query_points.assert_not_called()

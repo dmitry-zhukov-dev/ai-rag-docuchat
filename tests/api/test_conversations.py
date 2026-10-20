@@ -65,6 +65,7 @@ def test_add_and_list_messages(client):
     assert msg["sender_role"] == "user"
     assert msg["text"] == "Hello world!"
     assert msg["conversation_id"] == conv_id
+    assert msg["sources"] is None
 
     # List messages
     list_resp = client.get(f"/api/v1/conversations/{conv_id}/messages")

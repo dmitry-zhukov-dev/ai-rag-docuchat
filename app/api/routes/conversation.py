@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.api.deps import get_db
+from app.api.deps import get_current_session, get_db
+from app.core import security
+from app.core.security import SessionModel
 from app.services.conversation import ConversationService
 from app.schemas.conversation import (
     ConversationCreate,
@@ -25,7 +27,10 @@ def create_conversation(
     workspace_id: int,
     conversation_in: ConversationCreate,
     db: Session = Depends(get_db),
+    session: SessionModel = Depends(get_current_session),
 ):
+    security.require_workspace_access(db, session, workspace_id)
+
     conv = service.create_conversation(
         db, workspace_id=workspace_id, title=conversation_in.title
     )
@@ -42,7 +47,10 @@ def list_workspace_conversations(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     db: Session = Depends(get_db),
+    session: SessionModel = Depends(get_current_session),
 ):
+    security.require_workspace_access(db, session, workspace_id)
+
     convs = service.list_workspace_conversations(
         db, workspace_id=workspace_id, skip=skip, limit=limit
     )
@@ -57,7 +65,10 @@ def list_workspace_conversations(
 def read_conversation(
     conversation_id: int,
     db: Session = Depends(get_db),
+    session: SessionModel = Depends(get_current_session),
 ):
+    security.require_conversation_access(db, session, conversation_id)
+
     conv = service.get_conversation(db, conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -72,7 +83,10 @@ def list_messages(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     db: Session = Depends(get_db),
+    session: SessionModel = Depends(get_current_session),
 ):
+    security.require_conversation_access(db, session, conversation_id)
+
     messages = service.list_messages(
         db, conversation_id=conversation_id, skip=skip, limit=limit
     )
@@ -89,7 +103,10 @@ def add_message(
     conversation_id: int,
     message_in: MessageCreate,
     db: Session = Depends(get_db),
+    session: SessionModel = Depends(get_current_session),
 ):
+    security.require_conversation_access(db, session, conversation_id)
+
     msg = service.add_message(
         db,
         conversation_id=conversation_id,
@@ -108,7 +125,10 @@ def add_message(
 def delete_conversation(
     conversation_id: int,
     db: Session = Depends(get_db),
+    session: SessionModel = Depends(get_current_session),
 ):
+    security.require_conversation_access(db, session, conversation_id)
+
     deleted = service.delete_conversation(db, conversation_id)
 
     if not deleted:
@@ -128,7 +148,10 @@ def update_conversation(
     conversation_id: int,
     conversation_in: ConversationUpdate,
     db: Session = Depends(get_db),
+    session: SessionModel = Depends(get_current_session),
 ):
+    security.require_conversation_access(db, session, conversation_id)
+
     conversation = service.update_conversation(
         db,
         conversation_id=conversation_id,

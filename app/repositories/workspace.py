@@ -9,8 +9,19 @@ class WorkspaceRepository:
     def get_multi(self, db: Session, skip: int = 0, limit: int = 100) -> List[Workspace]:
         return db.query(Workspace).offset(skip).limit(limit).all()
 
-    def create(self, db: Session, *, name: str) -> Workspace:
-        db_obj = Workspace(name=name)
+    def get_by_session(
+        self, db: Session, *, session_id: str, skip: int = 0, limit: int = 100
+    ) -> List[Workspace]:
+        return (
+            db.query(Workspace)
+            .filter(Workspace.session_id == session_id)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    def create(self, db: Session, *, name: str, session_id: str) -> Workspace:
+        db_obj = Workspace(name=name, session_id=session_id)
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)

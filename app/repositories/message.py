@@ -21,8 +21,21 @@ class MessageRepository:
             .all()
         )
 
-    def create(self, db: Session, *, conversation_id: int, sender_role: str, text: str) -> Message:
-        db_obj = Message(conversation_id=conversation_id, sender_role=sender_role, text=text)
+    def create(
+        self,
+        db: Session,
+        *,
+        conversation_id: int,
+        sender_role: str,
+        text: str,
+        sources: Optional[list] = None,
+    ) -> Message:
+        db_obj = Message(
+            conversation_id=conversation_id,
+            sender_role=sender_role,
+            text=text,
+            sources=sources,
+        )
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)

@@ -24,6 +24,13 @@ class Document(Base):
         String(50),
         default="processing",
     )
+    # Diagnostic information for failed indexing or
+    # partial cleanup. Never contains secrets or full
+    # document content.
+    error_message: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+    )
     file_path: Mapped[Optional[str]] = mapped_column(
         String(1024),
         nullable=True,

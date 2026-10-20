@@ -29,6 +29,7 @@ def main() -> None:
 
         results = qdrant.search_chunks(
             query_vector=vector_a,
+            workspace_id="smoke-test",
             limit=2,
             document_id=document_id,
         )

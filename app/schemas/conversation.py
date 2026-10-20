@@ -38,5 +38,6 @@ class MessageResponse(MessageBase):
     id: int
     conversation_id: int
     created_at: datetime
+    sources: Optional[list[dict]] = None
 
     model_config = ConfigDict(from_attributes=True)

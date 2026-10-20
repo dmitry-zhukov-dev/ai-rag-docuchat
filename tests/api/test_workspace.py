@@ -53,23 +53,33 @@ def test_delete_workspace(client):
     response = client.get(f"/api/v1/workspaces/{ws_id}")
     assert response.status_code == 404
 
-def test_delete_workspace_with_dependencies_conflict(client):
+def test_delete_workspace_cascades_dependencies(client):
+    from unittest.mock import patch
+
     ws_resp = client.post("/api/v1/workspaces/", json={"name": "WS with Docs"})
     ws_id = ws_resp.json()["id"]
 
-    # Add a document
+    # Add a document and a conversation.
     doc_data = {
         "file_name": "doc.pdf",
         "file_format": "pdf",
         "file_size": 100,
         "num_pages": 1,
-        "indexing_status": "processing"
     }
     client.post(f"/api/v1/workspaces/{ws_id}/documents", json=doc_data)
+    client.post(
+        f"/api/v1/workspaces/{ws_id}/conversations",
+        json={"title": "Chat"},
+    )
 
-    # Attempt delete -> should return 409 Conflict
-    del_resp = client.delete(f"/api/v1/workspaces/{ws_id}")
-    assert del_resp.status_code == 409
+    # Vector cleanup is mocked; the cascade behavior is
+    # verified without contacting Qdrant.
+    with patch("app.services.document.delete_document_chunks"):
+        del_resp = client.delete(f"/api/v1/workspaces/{ws_id}")
+    assert del_resp.status_code == 204
+
+    # The workspace and its data are gone.
+    assert client.get(f"/api/v1/workspaces/{ws_id}").status_code == 404
 
 def test_workspace_name_validation(client):
     # Empty JSON body

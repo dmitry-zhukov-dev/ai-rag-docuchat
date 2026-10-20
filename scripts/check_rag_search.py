@@ -36,6 +36,7 @@ def main() -> None:
 
         results = qdrant.search_chunks(
             query_vector=query_vector,
+            workspace_id="smoke-test",
             limit=3,
             document_id=document_id,
         )

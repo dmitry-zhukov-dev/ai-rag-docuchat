@@ -4,11 +4,26 @@ from uuid import NAMESPACE_DNS, uuid5
 from qdrant_client import QdrantClient, models
 
 from app.integrations.embeddings import EMBEDDING_DIMENSION
+from app.core.config import settings
 from app.rag.chunking import Chunk
 
 
-COLLECTION_NAME = "documents"
-QDRANT_URL = "http://localhost:6333"
+COLLECTION_NAME = settings.qdrant_collection
+QDRANT_URL = settings.qdrant_url
+
+# Namespace for deterministic chunk point IDs. Deriving the point ID from
+# the chunk identifier makes repeated indexing idempotent: re-indexing the
+# same document overwrites the same points instead of creating duplicates.
+CHUNK_POINT_NAMESPACE = uuid5(NAMESPACE_DNS, "docuchat-chunk-point")
+
+
+def make_chunk_id(document_id: str, chunk_index: int) -> str:
+    """Return a chunk identifier unique within the collection.
+
+    The document identifier is part of the chunk identifier, so the chunk
+    index alone is never relied upon for uniqueness.
+    """
+    return f"{document_id}:{chunk_index}"
 
 # Namespace for deterministic chunk point IDs. Deriving the point ID from
 # the chunk identifier makes repeated indexing idempotent: re-indexing the
@@ -125,15 +140,23 @@ def save_chunks(
 
 def search_chunks(
     query_vector: list[float],
+    workspace_id: str,
     limit: int = 5,
     document_id: str | None = None,
     document_ids: list[str] | None = None,
 ) -> list[dict]:
-    """Find similar chunks, optionally restricted to specific documents."""
+    """Find similar chunks within a workspace.
+
+    The workspace filter is always applied on the Qdrant side, optionally
+    combined with single-document or selected-document restrictions.
+    """
     if len(query_vector) != EMBEDDING_DIMENSION:
         raise ValueError(
             f"query_vector must contain {EMBEDDING_DIMENSION} dimensions."
         )
+
+    if not isinstance(workspace_id, str) or not workspace_id.strip():
+        raise ValueError("workspace_id cannot be empty.")
 
     if isinstance(limit, bool) or not isinstance(limit, int):
         raise TypeError("limit must be an integer.")
@@ -157,10 +180,17 @@ def search_chunks(
     if not client.collection_exists(COLLECTION_NAME):
         return []
 
-    query_filter = None
+    # Every search is scoped to the calling workspace. The workspace
+    # condition is combined with the requested document restrictions so
+    # that chunks from other workspaces can never enter the results.
+    workspace_condition = models.FieldCondition(
+        key="workspace_id",
+        match=models.MatchValue(value=workspace_id),
+    )
 
     if document_ids is not None:
         query_filter = models.Filter(
+            must=[workspace_condition],
             should=[
                 models.FieldCondition(
                     key="document_id",
@@ -175,12 +205,15 @@ def search_chunks(
     elif document_id is not None:
         query_filter = models.Filter(
             must=[
+                workspace_condition,
                 models.FieldCondition(
                     key="document_id",
                     match=models.MatchValue(value=document_id),
                 )
             ]
         )
+    else:
+        query_filter = models.Filter(must=[workspace_condition])
 
     results = client.query_points(
         collection_name=COLLECTION_NAME,

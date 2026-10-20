@@ -135,3 +135,113 @@ def test_document_update_and_not_found(client: TestClient):
         "/api/v1/workspaces/999999/documents"
     )
     assert response.status_code == 404
+
+
+def test_metadata_creation_always_starts_processing(client):
+    """A metadata-only endpoint cannot fabricate a ready document."""
+    ws_resp = client.post("/api/v1/workspaces/", json={"name": "WS"})
+    ws_id = ws_resp.json()["id"]
+
+    response = client.post(
+        f"/api/v1/workspaces/{ws_id}/documents",
+        json={
+            "file_name": "ghost.pdf",
+            "file_format": "pdf",
+            "file_size": 100,
+            # Requesting a ready state must be ignored.
+            "indexing_status": "completed",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["indexing_status"] == "processing"
+
+
+def test_upload_failure_compensates_artifacts(client, monkeypatch):
+    from unittest.mock import patch
+
+    from app.services.file_storage import UPLOAD_DIR
+
+    ws_resp = client.post("/api/v1/workspaces/", json={"name": "WS"})
+    ws_id = ws_resp.json()["id"]
+
+    files_before = set(UPLOAD_DIR.glob("*")) if UPLOAD_DIR.exists() else set()
+
+    def failing_ingest(**kwargs):
+        raise RuntimeError("indexing exploded")
+
+    try:
+        with patch(
+            "app.api.routes.document.ingest_document",
+            side_effect=failing_ingest,
+        ) as ingest_mock, patch(
+            "app.api.routes.document.delete_document_chunks"
+        ) as cleanup_mock:
+            response = client.post(
+                f"/api/v1/workspaces/{ws_id}/documents/upload",
+                files={
+                    "file": (
+                        "broken.pdf",
+                        BytesIO(b"%PDF-1.4 broken"),
+                        "application/pdf",
+                    )
+                },
+            )
+
+        assert response.status_code == 500
+        ingest_mock.assert_called_once()
+
+        # Partially indexed vector points are removed.
+        cleanup_mock.assert_called_once()
+
+        # The document remains in a diagnosable failed state.
+        docs = client.get(
+            f"/api/v1/workspaces/{ws_id}/documents"
+        ).json()
+        assert len(docs) == 1
+        assert docs[0]["indexing_status"] == "failed"
+        assert docs[0]["error_message"]
+
+        # The stored file was removed.
+        files_after = set(UPLOAD_DIR.glob("*")) if UPLOAD_DIR.exists() else set()
+        assert not (files_after - files_before)
+
+    finally:
+        files_after = set(UPLOAD_DIR.glob("*")) if UPLOAD_DIR.exists() else set()
+        for path in files_after - files_before:
+            if path.is_file():
+                path.unlink()
+
+
+def test_document_deletion_is_safely_repeatable(
+    client: TestClient,
+):
+    from unittest.mock import patch
+
+    ws_resp = client.post(
+        "/api/v1/workspaces/", json={"name": "WS"}
+    )
+    ws_id = ws_resp.json()["id"]
+
+    doc_resp = client.post(
+        f"/api/v1/workspaces/{ws_id}/documents",
+        json={
+            "file_name": "note.txt",
+            "file_format": "txt",
+            "file_size": 10,
+        },
+    )
+    document_id = doc_resp.json()["id"]
+
+    with patch(
+        "app.services.document.delete_document_chunks"
+    ):
+        first = client.delete(f"/api/v1/documents/{document_id}")
+        assert first.status_code == 204
+
+        # Repeating the deletion is safe and reports
+        # the document as gone.
+        second = client.delete(
+            f"/api/v1/documents/{document_id}"
+        )
+        assert second.status_code == 404
