@@ -70,6 +70,7 @@ class DocumentService:
         file_name: Optional[str] = None,
         indexing_status: Optional[str] = None,
         num_pages: Optional[int] = None,
+        error_message: Optional[str] = None,
     ) -> Optional[Document]:
         doc = self.repo.get(db, id)
 
@@ -82,19 +83,35 @@ class DocumentService:
             file_name=file_name,
             indexing_status=indexing_status,
             num_pages=num_pages,
+            error_message=error_message,
         )
 
-    def delete_document(self, db: Session, id: int) -> bool:
-        """Delete a document, its indexed chunks, and its stored file."""
+    def delete_document(self, db: Session, id: int) -> tuple[bool, Optional[str]]:
+        """Delete a document, its indexed chunks, and its stored file.
+
+        Returns (deleted, diagnostic). The deletion is safe to
+        repeat: a missing document reports (False, None). When
+        cleanup partially fails, the operation reports a
+        diagnostic instead of claiming complete deletion.
+        """
         doc = self.repo.get(db, id)
 
         if doc is None:
-            return False
+            return False, None
 
         stored_path = doc.file_path
+        diagnostics: list[str] = []
 
-        # If Qdrant fails, keep the database record and stored file.
-        delete_document_chunks(str(doc.id))
+        # Vector index first: if this fails, the database
+        # record and stored file are kept so the deletion
+        # can be safely retried.
+        try:
+            delete_document_chunks(str(doc.id))
+        except Exception as exc:
+            diagnostics.append(
+                f"vector cleanup failed: {type(exc).__name__}"
+            )
+            return False, "; ".join(diagnostics)
 
         try:
             db.delete(doc)
@@ -103,7 +120,8 @@ class DocumentService:
             db.rollback()
             raise
 
-        # Only delete files located inside the configured uploads directory.
+        # Only delete files located inside the configured
+        # uploads directory.
         if stored_path:
             upload_root = UPLOAD_DIR.resolve()
             file_path = Path(stored_path).resolve()
@@ -112,8 +130,14 @@ class DocumentService:
                 file_path.relative_to(upload_root)
             except ValueError:
                 # Never delete a path outside uploads.
-                return True
+                return True, None
 
-            file_path.unlink(missing_ok=True)
+            try:
+                file_path.unlink(missing_ok=True)
+            except OSError:
+                diagnostics.append("file cleanup failed")
 
-        return True
+        if diagnostics:
+            return True, "; ".join(diagnostics)
+
+        return True, None

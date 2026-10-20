@@ -23,6 +23,7 @@ def main() -> None:
             query_vector=embed_query(
                 "How does DocuChat search for information?"
             ),
+            workspace_id="smoke-test",
             limit=3,
             document_id=document_id,
         )

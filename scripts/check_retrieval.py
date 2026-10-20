@@ -22,6 +22,7 @@ def main() -> None:
 
         results = retrieve_chunks(
             question="What does RAG mean?",
+            workspace_id="smoke-test",
             limit=3,
             document_id=document_id,
         )

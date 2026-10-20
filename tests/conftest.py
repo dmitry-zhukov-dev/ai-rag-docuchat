@@ -7,6 +7,8 @@ from sqlalchemy.pool import StaticPool
 from app.main import app
 from app.db.base import Base
 from app.api.deps import get_db
+from app.core import security
+from app.core.config import settings
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
@@ -42,5 +44,14 @@ def client():
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as c:
+        # Every request carries a valid session cookie so
+        # that tests exercise the same ownership checks as
+        # real clients.
+        db = TestingSessionLocal()
+        try:
+            session = security.create_session(db)
+        finally:
+            db.close()
+        c.cookies.set(settings.session_cookie_name, session.id)
         yield c
-    app.dependency_overrides.clear()
+        app.dependency_overrides.clear()

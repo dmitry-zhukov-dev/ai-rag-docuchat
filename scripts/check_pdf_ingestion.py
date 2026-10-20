@@ -23,6 +23,7 @@ def main() -> None:
 
         results = qdrant.search_chunks(
             query_vector=embed_query("What is this document about?"),
+            workspace_id="smoke-test",
             limit=3,
             document_id=document_id,
         )

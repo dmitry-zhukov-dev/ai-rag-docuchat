@@ -22,6 +22,7 @@ def main() -> None:
 
         answer = answer_question(
             question="What does RAG stand for?",
+            workspace_id="smoke-test",
             document_id=document_id,
         )
 

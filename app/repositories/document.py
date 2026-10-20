@@ -74,6 +74,7 @@ class DocumentRepository:
         file_name: Optional[str] = None,
         indexing_status: Optional[str] = None,
         num_pages: Optional[int] = None,
+        error_message: Optional[str] = None,
     ) -> Document:
         if file_name is not None:
             db_obj.file_name = file_name
@@ -83,6 +84,9 @@ class DocumentRepository:
 
         if num_pages is not None:
             db_obj.num_pages = num_pages
+
+        if error_message is not None:
+            db_obj.error_message = error_message
 
         db.add(db_obj)
         db.commit()

@@ -42,6 +42,7 @@ def main() -> None:
 
             answer = answer_question(
                 question=item["question"],
+                workspace_id="smoke-test",
                 document_id=document_id,
             )
 

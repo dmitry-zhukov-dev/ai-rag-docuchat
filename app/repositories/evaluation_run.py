@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from app.db.models.evaluation import EvaluationRun
@@ -15,6 +16,7 @@ class EvaluationRunRepository:
         return (
             db.query(EvaluationRun)
             .filter(EvaluationRun.evaluation_case_id == evaluation_case_id)
+            .order_by(EvaluationRun.created_at.desc())
             .offset(skip)
             .limit(limit)
             .all()
@@ -25,12 +27,13 @@ class EvaluationRunRepository:
         db: Session,
         *,
         evaluation_case_id: int,
+        status: str = "pending",
         config: Optional[dict] = None,
-        result_text: Optional[str] = None,
-        metrics: Optional[dict] = None
     ) -> EvaluationRun:
         db_obj = EvaluationRun(
-            evaluation_case_id=evaluation_case_id, config=config, result_text=result_text, metrics=metrics
+            evaluation_case_id=evaluation_case_id,
+            status=status,
+            config=config,
         )
         db.add(db_obj)
         db.commit()
@@ -42,13 +45,25 @@ class EvaluationRunRepository:
         db: Session,
         *,
         db_obj: EvaluationRun,
-        result_text: Optional[str] = None,
-        metrics: Optional[dict] = None
+        status: Optional[str] = None,
+        answer: Optional[str] = None,
+        actual_sources: Optional[list] = None,
+        metrics: Optional[dict] = None,
+        error: Optional[str] = None,
+        completed_at: Optional[datetime] = None,
     ) -> EvaluationRun:
-        if result_text is not None:
-            db_obj.result_text = result_text
+        if status is not None:
+            db_obj.status = status
+        if answer is not None:
+            db_obj.answer = answer
+        if actual_sources is not None:
+            db_obj.actual_sources = actual_sources
         if metrics is not None:
             db_obj.metrics = metrics
+        if error is not None:
+            db_obj.error = error
+        if completed_at is not None:
+            db_obj.completed_at = completed_at
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
