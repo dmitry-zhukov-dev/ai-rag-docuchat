@@ -6,9 +6,9 @@ DocuChat is a web application for uploading PDF and TXT documents, asking questi
 
 The application uses an existing Python backend, PostgreSQL for relational data, Qdrant for vector search, a local embedding model, and Gemini for answer generation.
 
-This document describes the agreed architecture and responsibilities. The repository code remains the source of truth for the actual implementation status.
+This document describes the implemented architecture and the responsibilities of each layer. The repository code remains the source of truth for exact behavior.
 
-## 2. Agreed project structure
+## 2. Project structure
 
 ```text
 app/
@@ -27,6 +27,7 @@ app/
 tests/
 ├── unit/
 ├── integration/
+├── api/
 └── evaluation/
 
 scripts/
@@ -49,7 +50,7 @@ HTTP entry points.
 Responsibilities:
 - Accept requests and validate request-level input.
 - Invoke the appropriate services.
-- Return the agreed API response schemas.
+- Return the defined API response schemas.
 - Translate known application errors into appropriate HTTP responses.
 - Avoid implementing substantial business logic directly in route handlers.
 
@@ -63,7 +64,7 @@ Responsibilities:
 - Keep API contracts consistent with routes, services, and frontend consumers.
 - Represent structured answers, insufficient-context status, and source metadata where required.
 
-Do not assume a particular field exists until it is confirmed in the current code and the canonical plan.
+Do not assume a particular field exists until it is confirmed in the current code.
 
 ### `app/services/`
 
@@ -95,9 +96,9 @@ SQLAlchemy relational models.
 Responsibilities:
 - Represent persistent application entities.
 - Define fields, relationships, constraints, and indexes as the implementation evolves.
-- Support workspaces, documents, conversations, messages, and Evaluation entities as required by the canonical plan.
+- Support workspaces, documents, conversations, messages, and Evaluation entities as required by the application.
 
-The final model graph and initial Alembic migration must be reconciled at Stage 14. Do not create intermediate migrations or apply schema changes during earlier development stages.
+The model graph and the Alembic revisions in `migrations/versions/` must stay consistent. Apply schema changes through a new revision; do not edit migrations that have already been applied.
 
 ### `app/rag/`
 
@@ -118,15 +119,13 @@ Keep the relationship between each retrieved chunk and its originating document 
 
 Adapters for external systems and model providers.
 
-Existing integrations include the embedding implementation, Qdrant access, and Gemini generation. Langfuse is an additional planned integration.
+Existing integrations include the embedding implementation, Qdrant access, Gemini generation, and optional Langfuse tracing.
 
 Responsibilities:
 - Encapsulate provider-specific APIs.
 - Keep external SDK details out of unrelated layers.
 - Handle provider-specific failures at appropriate boundaries.
 - Keep optional observability from becoming a hard dependency for the core RAG workflow.
-
-Do not assume every planned integration is already complete.
 
 ### `app/core/`
 
@@ -141,11 +140,10 @@ Extend the existing modules instead of introducing parallel infrastructure witho
 The existing frontend.
 
 Responsibilities:
-- Workspace management.
-- Document upload, status display, selection, and deletion.
+- Bootstrap and restore of the default workspace and conversation for the anonymous session.
+- Document upload, status display, and deletion.
 - Chat interaction and conversation history.
 - Display of answers, insufficient-context state, and source references.
-- Evaluation workflows and results.
 
 Keep the frontend consistent with the actual API contracts. Do not assume an endpoint or response field exists without checking the backend.
 
@@ -153,17 +151,18 @@ Keep the frontend consistent with the actual API contracts. Do not assume an end
 
 - `tests/unit/`: isolated component behavior.
 - `tests/integration/`: interactions between application components.
-- `tests/evaluation/`: retrieval, answer, and source-quality checks.
+- `tests/api/`: HTTP-level tests for sessions, workspaces, documents, and conversations.
+- `tests/evaluation/`: evaluation service and metric computation.
 
-Tests can be authored and statically reviewed during implementation. Execution is prohibited until Stage 14 and explicit user authorization.
+Tests run against an in-memory SQLite database and stubbed providers, so they need neither Docker nor external services. Because two test modules share a basename, run the suite with `--import-mode=importlib` or run one test directory at a time.
 
 ### `scripts/`
 
-Existing project scripts and development utilities. Inspect their behavior before using them. Do not execute scripts that start services, contact external providers, mutate databases, or perform runtime checks while those actions are prohibited.
+Manual smoke and verification scripts. Most require running services (PostgreSQL, Qdrant, Gemini) and are not part of the automated test suite. Inspect a script before running it, because some scripts write test data to the configured services.
 
-## 4. Existing RAG data flow
+## 4. RAG data flow
 
-The current code audit identified the following high-level flow. Recheck exact signatures and behavior against the repository before modifying it.
+The chat request follows this flow:
 
 ```text
 HTTP chat route
@@ -195,13 +194,11 @@ Chat API response
 Frontend
 ```
 
-The audit found that the current path includes `app/api/routes/chat.py`, `app/services/chat.py`, `app/rag/generation.py`, `app/rag/retrieval.py`, `app/rag/prompting.py`, and `app/integrations/llm.py`.
-
-The exact behavior and contracts of these modules must be verified in the current repository before implementation changes.
+The path is implemented in `app/api/routes/chat.py`, `app/services/chat.py`, `app/rag/generation.py`, `app/rag/retrieval.py`, `app/rag/prompting.py`, and `app/integrations/llm.py`.
 
 ## 5. Embeddings and vector search
 
-The agreed embedding model is:
+The embedding model is:
 
 - Model: `intfloat/multilingual-e5-small`.
 - Vector dimension: 384.
@@ -210,11 +207,11 @@ The agreed embedding model is:
 - Inference: local embedding model, not Gemini embeddings.
 - Vector storage and similarity search: Qdrant.
 
-Do not replace the embedding model or change vector dimensions without explicit approval.
+Changing the embedding model or the vector dimension requires re-indexing the collection.
 
-The final retrieval pipeline must preserve enough metadata to associate a retrieved result with its workspace, document, chunk, filename, and PDF page when applicable.
+The retrieval pipeline preserves enough metadata to associate a retrieved result with its workspace, document, chunk, filename, and PDF page when applicable.
 
-TXT documents must not receive fabricated page numbers.
+TXT documents have no page numbers; their page field is null.
 
 ## 6. Data and source attribution
 
@@ -222,7 +219,7 @@ A generated answer and its sources are different types of information.
 
 The model produces answer text. The application must derive source identifiers and metadata from actual retrieved records, validate their access permissions, and return a structured result.
 
-The target response contract is defined in `docs/mvp-v1-plan.md`. It includes the answer, insufficient-context status, and source references.
+The response contract is defined in `app/schemas/chat.py`. It includes the answer, insufficient-context status, and source references.
 
 Source metadata must preserve, as applicable:
 - `document_id`
@@ -233,15 +230,15 @@ Source metadata must preserve, as applicable:
 
 Do not trust a document ID, page number, or source reference invented by the language model. A valid source identifier also does not, by itself, prove that a claim is supported by that source.
 
-The source and history design must account for reopening conversations and for documents that are subsequently deleted.
+Source snapshots are stored with assistant messages, so reopening a conversation still shows citations after the underlying document is deleted.
 
 ## 7. Storage responsibilities
 
 ### PostgreSQL
 
-The relational database is responsible for persistent application records and relationships, including workspaces, documents, conversations, messages, and Evaluation data as required by the plan.
+The relational database is responsible for persistent application records and relationships, including workspaces, documents, conversations, messages, and Evaluation data.
 
-The final schema is assembled only at Stage 14.
+The schema is versioned by the Alembic migrations in `migrations/versions/`.
 
 ### Qdrant
 
@@ -253,9 +250,7 @@ The existence of a Qdrant point does not prove that its document is valid, acces
 
 ### File storage
 
-The existing file-storage mechanism is responsible for uploaded document files. The application must distinguish the original filename from the internal storage path and must not accept arbitrary filesystem paths from clients.
-
-The exact storage implementation must be confirmed from the repository rather than inferred from this architecture description.
+`app/services/file_storage.py` validates uploads (extension, size) and stores them under `UPLOAD_DIR` with a random file name. The original filename and the internal storage path are kept separately on the document record, and the application never accepts arbitrary filesystem paths from clients.
 
 ## 8. Security boundaries
 
@@ -267,28 +262,24 @@ A workspace ID or another object ID supplied by the client is not proof of autho
 
 The application must validate access before returning or deleting records, files, and associated vector points. Qdrant filters complement, but do not replace, application-level authorization.
 
-Session behavior, cookie settings, ownership enforcement, upload restrictions, and privacy requirements are defined in the canonical plan.
+Session behavior, cookie settings, ownership enforcement, upload restrictions, and privacy requirements are configured in `app/core/config.py` and `.env.example`, and enforced in `app/core/security.py` and the API layer.
 
 ## 9. Evaluation and observability
 
-Evaluation must use the real RAG retrieval and generation pipeline. It must persist actual answers, actual source references, execution status, and calculated metrics.
+Evaluation uses the real RAG retrieval and generation pipeline and persists the actual answer, the actual source references, execution status, and calculated metrics.
 
-Deterministic metrics are the required baseline. An LLM-as-a-judge implementation is not part of the mandatory baseline without separate approval.
+Deterministic metrics are the baseline; no LLM-as-a-judge evaluation is implemented.
 
-Langfuse v4 is an optional observability integration. Its unavailability must not prevent normal RAG operation. Full document text and secrets must not be sent to telemetry by default.
+Langfuse is an optional observability integration, implemented in `app/integrations/langfuse.py` and disabled by default. Its unavailability must not prevent normal RAG operation. Full document text and secrets are not sent to telemetry by default.
 
 ## 10. Database and migration policy
 
-Database-dependent code may be implemented and ORM models may evolve throughout development.
+The relational schema is defined by the SQLAlchemy models and versioned by the Alembic revisions in `migrations/versions/`.
 
-Before Stage 14:
-- Do not apply migrations.
-- Do not create or rebuild the actual database schema.
-- Do not create intermediate Alembic migrations.
-- Do not perform destructive database or Docker-volume operations.
-- Do not run the application or tests without explicit user authorization.
-
-At Stage 14, reconcile all models, relationships, constraints, indexes, and Alembic metadata, then prepare one clean initial migration for the final schema.
+- Apply the current schema with `alembic upgrade head`.
+- Introduce schema changes as new Alembic revisions; do not edit revisions that have already been applied.
+- Keep the SQLAlchemy models and the migrations consistent.
+- The Docker Compose `app` service does not apply migrations automatically; run the Alembic command during setup and after pulling new revisions.
 
 ## 11. Architectural change policy
 
@@ -297,6 +288,5 @@ Before proposing a structural change:
 2. Trace affected modules and callers.
 3. Explain why the current architecture cannot address it adequately.
 4. Describe the smallest viable alternative and its impact.
-5. Obtain user approval when the change affects the agreed architecture or unresolved decisions.
 
 Prefer targeted changes that preserve existing working code and API contracts wherever possible.

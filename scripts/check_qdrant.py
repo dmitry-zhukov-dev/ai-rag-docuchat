@@ -4,6 +4,7 @@ from uuid import uuid4
 from qdrant_client import models
 
 from app.integrations import qdrant
+from app.rag.chunking import Chunk
 
 
 def main() -> None:
@@ -20,8 +21,8 @@ def main() -> None:
             workspace_id="smoke-test",
             filename="sample_document.txt",
             chunks=[
-                "Python is a programming language.",
-                "The weather is sunny today.",
+                Chunk(text="Python is a programming language.", page=None),
+                Chunk(text="The weather is sunny today.", page=None),
             ],
             vectors=[vector_a, vector_b],
         )

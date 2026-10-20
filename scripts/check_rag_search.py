@@ -6,6 +6,7 @@ from qdrant_client import models
 from app.integrations import qdrant
 from app.integrations.embeddings import embed_query, embed_texts
 from app.rag.chunking import chunk_text
+from app.rag.loaders import LoadedSegment
 
 
 def main() -> None:
@@ -19,8 +20,12 @@ def main() -> None:
     """
 
     try:
-        chunks = chunk_text(text, chunk_size=100, chunk_overlap=20)
-        vectors = embed_texts(chunks)
+        chunks = chunk_text(
+            [LoadedSegment(text=text, page=None)],
+            chunk_size=100,
+            chunk_overlap=20,
+        )
+        vectors = embed_texts([chunk.text for chunk in chunks])
 
         qdrant.create_collection()
         qdrant.save_chunks(

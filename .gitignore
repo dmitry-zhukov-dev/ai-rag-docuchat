@@ -1,7 +1,37 @@
+# Virtual environments
 .venv/
+venv/
+
+# Environment and local secrets
 .env
+.env.*
+!.env.example
+
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local logs and temporary development artifacts
+logs/
+*.log
+tmp/
+*.db
+*.sqlite3
+
+# Uploaded documents (local runtime storage)
+uploads/
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Local agent workspace
 .agent/
-/uploads/
