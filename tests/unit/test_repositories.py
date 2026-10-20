@@ -28,7 +28,7 @@ def test_repositories(db_session):
     case_repo = EvaluationCaseRepository()
     run_repo = EvaluationRunRepository()
 
-    ws = workspace_repo.create(db_session, name="WS1")
+    ws = workspace_repo.create(db_session, name="WS1", session_id="session-1")
 
     # Document
     doc = doc_repo.create(db_session, workspace_id=ws.id, file_name="test.pdf", file_format="pdf", file_size=1024)

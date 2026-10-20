@@ -28,12 +28,10 @@ class EvaluationRunRepository:
         *,
         evaluation_case_id: int,
         status: str = "pending",
-        config: Optional[dict] = None,
     ) -> EvaluationRun:
         db_obj = EvaluationRun(
             evaluation_case_id=evaluation_case_id,
             status=status,
-            config=config,
         )
         db.add(db_obj)
         db.commit()

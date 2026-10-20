@@ -283,7 +283,14 @@ def test_search_chunks_combines_workspace_and_document_ids_filters(
     assert query_filter.should[0].key == "document_id"
     assert query_filter.should[0].match.value == "doc-1"
     assert query_filter.should[1].match.value == "doc-2"
-    assert query_filter.min_should.conditions == 1
+
+    assert isinstance(query_filter.min_should, models.MinShould)
+    assert query_filter.min_should.min_count == 1
+    assert len(query_filter.min_should.conditions) == 2
+    assert query_filter.min_should.conditions[0].key == "document_id"
+    assert query_filter.min_should.conditions[0].match.value == "doc-1"
+    assert query_filter.min_should.conditions[1].key == "document_id"
+    assert query_filter.min_should.conditions[1].match.value == "doc-2"
 
 
 def test_search_chunks_empty_document_ids_return_no_results(mock_client):

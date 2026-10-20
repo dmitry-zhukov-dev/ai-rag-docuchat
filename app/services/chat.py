@@ -75,7 +75,17 @@ class ChatService:
             if message.sender_role in ("user", "assistant")
         ]
 
-        # Generate the answer before saving the new messages.
+        # The question is persisted before generation so
+        # that a failed generation never fabricates an
+        # answer and never loses the user's question.
+        self.message_repo.create(
+            db,
+            conversation_id=conversation_id,
+            sender_role="user",
+            text=question,
+        )
+
+        # Generate the answer before saving the assistant message.
         # The workspace identifier scopes retrieval to this
         # workspace on the Qdrant side, and the accessible
         # document identifiers verify every retrieved chunk at
@@ -87,16 +97,6 @@ class ChatService:
             document_ids=selected_document_ids,
             history=history,
             accessible_document_ids=set(selected_document_ids),
-        )
-
-        # The question is persisted before generation so
-        # that a failed generation never fabricates an
-        # answer and never loses the user's question.
-        self.message_repo.create(
-            db,
-            conversation_id=conversation_id,
-            sender_role="user",
-            text=question,
         )
 
         self.message_repo.create(

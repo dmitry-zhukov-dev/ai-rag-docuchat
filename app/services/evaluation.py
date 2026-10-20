@@ -24,8 +24,22 @@ RUN_FAILED = "failed"
 
 
 def _normalize(text: str) -> list[str]:
-    """Return the alphanumeric tokens of a text."""
-    return re.findall(r"[a-z0-9]+", text.lower())
+    """Return the alphanumeric tokens of a text.
+
+    Common English possessives ("document's") are normalized so
+    that the possessive-stripped form is also present, allowing
+    a required fact such as "The Document's Title!" to match an
+    answer that contains "document" without "document's".
+    """
+    tokens = re.findall(r"[a-z0-9']+", text.lower())
+    normalized: list[str] = []
+    for token in tokens:
+        normalized.append(token)
+        if token.endswith("'s") and len(token) > 2:
+            normalized.append(token[:-2])
+        elif token.endswith("'") and len(token) > 1:
+            normalized.append(token[:-1])
+    return normalized
 
 
 def _fact_covered(fact: str, answer_tokens: list[str]) -> bool:
@@ -38,7 +52,23 @@ def _fact_covered(fact: str, answer_tokens: list[str]) -> bool:
     fact_tokens = _normalize(fact)
     if not fact_tokens:
         return False
-    return all(token in answer_tokens for token in fact_tokens)
+    
+    # Check each token or its base form (without possessive 's)
+    for token in fact_tokens:
+        found = False
+        candidates = {token}
+        if token.endswith("'s") and len(token) > 2:
+            candidates.add(token[:-2])
+        elif token.endswith("'") and len(token) > 1:
+            candidates.add(token[:-1])
+        
+        if any(c in answer_tokens for c in candidates):
+            found = True
+            
+        if not found:
+            return False
+            
+    return True
 
 
 def _source_matches(

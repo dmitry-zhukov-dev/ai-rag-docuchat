@@ -164,6 +164,17 @@ def search_chunks(
     if limit <= 0:
         raise ValueError("limit must be greater than zero.")
 
+    # Workspace condition is defined after validation of workspace_id.
+    workspace_condition = models.FieldCondition(
+        key="workspace_id",
+        match=models.MatchValue(value=workspace_id),
+    )
+
+    client = get_qdrant_client()
+
+    if not client.collection_exists(COLLECTION_NAME):
+        return []
+
     if document_ids is not None:
         if not isinstance(document_ids, list):
             raise TypeError("document_ids must be a list.")
@@ -175,20 +186,7 @@ def search_chunks(
         if not document_ids:
             return []
 
-    client = get_qdrant_client()
-
-    if not client.collection_exists(COLLECTION_NAME):
-        return []
-
-    # Every search is scoped to the calling workspace. The workspace
-    # condition is combined with the requested document restrictions so
-    # that chunks from other workspaces can never enter the results.
-    workspace_condition = models.FieldCondition(
-        key="workspace_id",
-        match=models.MatchValue(value=workspace_id),
-    )
-
-    if document_ids is not None:
+        # Build the filter as per the fixed MinShould structure.
         query_filter = models.Filter(
             must=[workspace_condition],
             should=[
@@ -199,7 +197,14 @@ def search_chunks(
                 for doc_id in document_ids
             ],
             min_should=models.MinShould(
-                conditions=1,
+                conditions=[
+                    models.FieldCondition(
+                        key="document_id",
+                        match=models.MatchValue(value=doc_id),
+                    )
+                    for doc_id in document_ids
+                ],
+                min_count=1,
             ),
         )
     elif document_id is not None:
@@ -213,6 +218,7 @@ def search_chunks(
             ]
         )
     else:
+        # workspace_condition is defined after validation.
         query_filter = models.Filter(must=[workspace_condition])
 
     results = client.query_points(

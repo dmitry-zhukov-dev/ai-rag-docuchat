@@ -66,13 +66,20 @@ def test_unauthenticated_request_is_rejected():
     assert response.status_code == 401
 
 
-def test_invalid_session_cookie_is_rejected():
-    client = TestClient(app)
-    client.cookies.set(settings.session_cookie_name, "not-a-session")
+def test_invalid_session_cookie_is_rejected(db_session):
+    def override_get_db():
+        yield db_session
 
-    response = client.get("/api/v1/workspaces/")
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        client.cookies.set(settings.session_cookie_name, "not-a-session")
 
-    assert response.status_code == 401
+        response = client.get("/api/v1/workspaces/")
+
+        assert response.status_code == 401
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_sessions_are_isolated_for_workspaces(session_client):
