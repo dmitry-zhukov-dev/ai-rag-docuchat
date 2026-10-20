@@ -5,6 +5,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.db.models.document import Document
+from app.db.models.conversation import Conversation
 from app.integrations.qdrant import delete_document_chunks
 from app.repositories.document import DocumentRepository
 from app.repositories.workspace import WorkspaceRepository
@@ -16,6 +17,9 @@ class DocumentService:
         self.repo = DocumentRepository()
         self.workspace_repo = WorkspaceRepository()
 
+    def claim_upload(self, db: Session, **metadata):
+        return self.repo.claim_upload(db, **metadata)
+
     def get_document(self, db: Session, id: int) -> Optional[Document]:
         return self.repo.get(db, id)
 
@@ -24,6 +28,7 @@ class DocumentService:
         db: Session,
         workspace_id: int,
         indexing_status: Optional[str] = None,
+        conversation_id: Optional[int] = None,
         skip: int = 0,
         limit: int = 100,
     ) -> Optional[list[Document]]:
@@ -34,6 +39,7 @@ class DocumentService:
             db,
             workspace_id=workspace_id,
             indexing_status=indexing_status,
+            conversation_id=conversation_id,
             skip=skip,
             limit=limit,
         )
@@ -98,6 +104,13 @@ class DocumentService:
 
         if doc is None:
             return False, None
+
+        if doc.conversation_id is not None:
+            db.query(Conversation).filter(Conversation.id == doc.conversation_id).with_for_update().first()
+            db.refresh(doc)
+            if doc.indexing_status == "processing":
+                db.rollback()
+                return False, "Document is still processing."
 
         stored_path = doc.file_path
         diagnostics: list[str] = []

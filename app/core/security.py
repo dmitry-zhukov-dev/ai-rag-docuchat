@@ -72,7 +72,7 @@ def get_session_by_id(
         return None
 
     if not is_session_active(session):
-        session_repo.delete(db, session_id=session_id)
+        # Expiration must not delete owned data or violate workspace foreign keys.
         return None
 
     return session

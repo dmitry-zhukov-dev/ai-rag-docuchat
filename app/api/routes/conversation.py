@@ -129,7 +129,10 @@ def delete_conversation(
 ):
     security.require_conversation_access(db, session, conversation_id)
 
-    deleted = service.delete_conversation(db, conversation_id)
+    try:
+        deleted = service.delete_conversation(db, conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     if not deleted:
         raise HTTPException(

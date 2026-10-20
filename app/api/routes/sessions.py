@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_session, get_db
@@ -31,13 +31,18 @@ def _clear_session_cookie(response: Response) -> None:
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
 def create_session_route(
-    response: Response, db: Session = Depends(get_db)
+    request: Request, response: Response, db: Session = Depends(get_db)
 ) -> dict[str, str]:
     """Start an anonymous session and set its cookie.
 
     The session identifier is only transmitted through the
     cookie; it is not returned in the response body.
     """
+    cookie = security.get_session_id_from_cookie(request)
+    if cookie and security.get_session_by_id(db, cookie) is not None:
+        # Do not extend the browser expiry beyond the database expiry.
+        response.status_code = status.HTTP_200_OK
+        return {"status": "ok"}
     session = security.create_session(db)
     _set_session_cookie(response, session.id)
     return {"status": "ok"}
@@ -53,3 +58,13 @@ def delete_session_route(
     security.delete_session(db, session.id)
     _clear_session_cookie(response)
     return None
+
+
+@router.post("/sessions/context")
+def default_context_route(
+    db: Session = Depends(get_db),
+    session: SessionModel = Depends(get_current_session),
+):
+    from app.services.conversation import ConversationService
+    context = ConversationService().default_context(db, session.id)
+    return {**context, "max_file_size_bytes": settings.max_file_size_mb * 1024 * 1024}

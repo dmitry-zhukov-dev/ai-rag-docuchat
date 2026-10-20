@@ -4,6 +4,7 @@ from app.core.config import settings
 
 
 def test_create_session_sets_cookie(client: TestClient):
+    client.cookies.clear()
     response = client.post("/api/v1/sessions")
 
     assert response.status_code == 201
@@ -18,13 +19,14 @@ def test_delete_session_requires_authentication(
     client: TestClient,
 ):
     # A client without a session cookie cannot log out.
-    anonymous = TestClient()
-    response = anonymous.delete("/api/v1/sessions")
+    client.cookies.clear()
+    response = client.delete("/api/v1/sessions")
 
     assert response.status_code == 401
 
 
 def test_session_cookie_attributes(client: TestClient):
+    client.cookies.clear()
     response = client.post("/api/v1/sessions")
 
     assert response.status_code == 201
@@ -32,3 +34,13 @@ def test_session_cookie_attributes(client: TestClient):
     set_cookie = response.headers.get("set-cookie", "")
     assert settings.session_cookie_name in set_cookie
     assert "httponly" in set_cookie.lower()
+
+
+def test_session_and_default_context_are_reused(client):
+    cookie = client.cookies.get(settings.session_cookie_name)
+    assert client.post("/api/v1/sessions").status_code == 200
+    assert client.cookies.get(settings.session_cookie_name) == cookie
+    first = client.post("/api/v1/sessions/context").json()
+    assert client.post("/api/v1/sessions/context").json() == first
+    assert client.post("/api/v1/sessions").status_code == 200
+    assert client.post("/api/v1/sessions/context").json() == first

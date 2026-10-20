@@ -42,9 +42,8 @@ def test_document_lifecycle(client):
 
     # 6. Partially update document metadata
     patch_resp = client.patch(f"/api/v1/documents/{doc_id}", json={"indexing_status": "completed"})
-    assert patch_resp.status_code == 200
-    assert patch_resp.json()["indexing_status"] == "completed"
-    assert patch_resp.json()["file_name"] == "contract.pdf"  # Preserved
+    assert patch_resp.status_code == 400
+    assert client.get(f"/api/v1/documents/{doc_id}").json()["indexing_status"] == "processing"
 
     # 7. Non-existent document 404
     assert client.get("/api/v1/documents/99999").status_code == 404

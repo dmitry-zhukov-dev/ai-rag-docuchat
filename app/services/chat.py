@@ -1,5 +1,6 @@
 from typing import Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.db.models.document import Document
@@ -35,6 +36,7 @@ class ChatService:
                     Document.workspace_id
                     == conversation.workspace_id,
                     Document.indexing_status == "completed",
+                    or_(Document.conversation_id == conversation.id, Document.conversation_id.is_(None)),
                 )
                 .all()
             )
@@ -56,6 +58,7 @@ class ChatService:
             selected_document_ids = self._verify_selected_documents(
                 db,
                 workspace_id=conversation.workspace_id,
+                conversation_id=conversation.id,
                 document_ids=document_ids,
             )
 
@@ -119,6 +122,7 @@ class ChatService:
         self,
         db: Session,
         workspace_id: int,
+        conversation_id: int,
         document_ids: list[int],
     ) -> list[str]:
         """Verify ownership and readiness of selected documents.
@@ -137,6 +141,7 @@ class ChatService:
             .filter(
                 Document.workspace_id == workspace_id,
                 Document.id.in_(unique_ids),
+                or_(Document.conversation_id == conversation_id, Document.conversation_id.is_(None)),
             )
             .all()
         )

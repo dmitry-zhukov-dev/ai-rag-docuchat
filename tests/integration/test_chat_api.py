@@ -20,10 +20,7 @@ def _ready_workspace_with_document(client: TestClient) -> dict:
             "indexing_status": "processing",
         },
     ).json()
-    client.patch(
-        f"/api/v1/documents/{doc['id']}",
-        json={"indexing_status": "completed"},
-    )
+    client.mark_document_ready(doc["id"])
     return {"workspace_id": ws["id"], "document_id": str(doc["id"])}
 
 
@@ -197,10 +194,7 @@ def _add_ready_document(client: TestClient, workspace_id: int, name: str) -> dic
             "indexing_status": "processing",
         },
     ).json()
-    client.patch(
-        f"/api/v1/documents/{document['id']}",
-        json={"indexing_status": "completed"},
-    )
+    client.mark_document_ready(document["id"])
     return document
 
 

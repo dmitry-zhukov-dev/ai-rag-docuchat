@@ -1,12 +1,14 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, ForeignKey, DateTime, func
+from sqlalchemy import String, ForeignKey, DateTime, func, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 class Conversation(Base):
     __tablename__ = "conversations"
     
+    __table_args__ = (UniqueConstraint("id", "workspace_id", name="uq_conversations_id_workspace"),)
+
     id: Mapped[int] = mapped_column(primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

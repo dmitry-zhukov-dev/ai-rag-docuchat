@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, ForeignKey, DateTime, func, Integer
+from sqlalchemy import String, ForeignKey, DateTime, func, Integer, ForeignKeyConstraint, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -10,6 +10,24 @@ from app.db.base import Base
 
 class Document(Base):
     __tablename__ = "documents"
+
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "file_hash", name="uq_documents_conversation_hash"),
+        ForeignKeyConstraint(
+            ["conversation_id", "workspace_id"],
+            ["conversations.id", "conversations.workspace_id"],
+            name="fk_documents_conversation_workspace",
+        ),
+        CheckConstraint(
+            "(conversation_id IS NULL AND file_hash IS NULL) OR "
+            "(conversation_id IS NOT NULL AND file_hash IS NOT NULL AND length(file_hash) = 64)",
+            name="ck_documents_scope_hash",
+        ),
+    )
+
+    # Both NULL denotes a legacy workspace-shared document. Never backfilled implicitly.
+    conversation_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    file_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     workspace_id: Mapped[int] = mapped_column(

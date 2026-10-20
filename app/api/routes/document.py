@@ -1,4 +1,6 @@
 import logging
+import hashlib
+from starlette.concurrency import run_in_threadpool
 from typing import List, Optional
 
 from fastapi import (
@@ -17,7 +19,7 @@ from app.api.deps import get_current_session, get_db
 from app.core import security
 from app.core.security import SessionModel
 from app.integrations.qdrant import delete_document_chunks
-from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentResponse
+from app.schemas.document import DocumentCreate, DocumentUpdate, DocumentResponse, DocumentUploadResponse
 from app.services.document import DocumentService
 from app.services.file_storage import save_uploaded_file
 from app.rag.ingestion import ingest_document
@@ -71,15 +73,22 @@ def list_workspace_documents(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     indexing_status: Optional[str] = Query(None),
+    conversation_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     session: SessionModel = Depends(get_current_session),
 ):
     security.require_workspace_access(db, session, workspace_id)
 
+    if conversation_id is not None:
+        conversation = security.require_conversation_access(db, session, conversation_id)
+        if conversation.workspace_id != workspace_id:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+
     docs = service.list_workspace_documents(
         db,
         workspace_id=workspace_id,
         indexing_status=indexing_status,
+        conversation_id=conversation_id,
         skip=skip,
         limit=limit,
     )
@@ -123,6 +132,9 @@ def update_document(
 ):
     security.require_document_access(db, session, document_id)
 
+    if document_in.indexing_status is not None:
+        raise HTTPException(status_code=400, detail="Indexing status is managed by the server.")
+
     doc = service.update_document(
         db,
         id=document_id,
@@ -145,7 +157,9 @@ def delete_document(
     db: Session = Depends(get_db),
     session: SessionModel = Depends(get_current_session),
 ):
-    security.require_document_access(db, session, document_id)
+    document = security.require_document_access(db, session, document_id)
+    if document.conversation_id is not None and document.indexing_status == "processing":
+        raise HTTPException(status_code=409, detail="Document is still processing.")
 
     deleted, diagnostic = service.delete_document(db, document_id)
 
@@ -154,6 +168,9 @@ def delete_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found",
         )
+
+    if not deleted and diagnostic == "Document is still processing.":
+        raise HTTPException(status_code=409, detail=diagnostic)
 
     if not deleted:
         # Cleanup failed before the record was removed;
@@ -174,91 +191,68 @@ def delete_document(
 
 @workspace_documents_router.post(
     "/workspaces/{workspace_id}/documents/upload",
-    response_model=DocumentResponse,
+    response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_document(
     workspace_id: int,
+    response: Response,
+    conversation_id: int = Query(..., ge=1),
+    retry: bool = Query(False),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     session: SessionModel = Depends(get_current_session),
 ):
     security.require_workspace_access(db, session, workspace_id)
-
+    conversation = security.require_conversation_access(db, session, conversation_id)
+    if conversation.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
     file_name = file.filename
-
+    if file_name and len(file_name) > 255:
+        raise HTTPException(status_code=400, detail="Filename is too long.")
     try:
         saved_path = await save_uploaded_file(file)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         await file.close()
 
+    # Hash bytes exactly once; filenames never determine identity.
     try:
-        doc = service.create_document(
-            db,
-            workspace_id=workspace_id,
-            file_name=file_name or saved_path.name,
+        file_hash = hashlib.sha256(saved_path.read_bytes()).hexdigest()
+        doc, disposition, claimed = service.claim_upload(
+            db, workspace_id=workspace_id, conversation_id=conversation_id,
+            file_hash=file_hash, file_name=file_name or saved_path.name,
             file_format=saved_path.suffix.lstrip(".").lower(),
-            file_size=saved_path.stat().st_size,
-            indexing_status="processing",
-            file_path=str(saved_path.resolve()),
+            file_size=saved_path.stat().st_size, file_path=str(saved_path.resolve()), retry=retry,
         )
-
-        if doc is None:
-            saved_path.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Workspace not found",
-            )
-
-        try:
-            ingest_document(
-                file_path=str(saved_path),
-                document_id=str(doc.id),
-                workspace_id=str(workspace_id),
-                filename=doc.file_name,
-            )
-        except Exception as exc:
-            # Compensate the failed indexing operation:
-            # remove any partially indexed vector points
-            # and the stored file, and keep a diagnosable
-            # failed record without secrets.
-            try:
-                delete_document_chunks(str(doc.id))
-            except Exception as cleanup_exc:
-                logger.warning(
-                    "Partial cleanup failed for document %s: %s",
-                    doc.id,
-                    type(cleanup_exc).__name__,
-                )
-
-            saved_path.unlink(missing_ok=True)
-
-            service.update_document(
-                db,
-                id=doc.id,
-                indexing_status="failed",
-                error_message=f"indexing failed: {type(exc).__name__}",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Document indexing failed",
-            )
-
-        updated_doc = service.update_document(
-            db,
-            id=doc.id,
-            indexing_status="completed",
-        )
-
-        return updated_doc
-
-    except HTTPException:
-        raise
     except Exception:
+        db.rollback()
         saved_path.unlink(missing_ok=True)
         raise
+
+    if not claimed:
+        saved_path.unlink(missing_ok=True)
+        response.status_code = 200
+    else:
+        # Only the worker that committed the claim may ingest. Offload the
+        # unchanged synchronous pipeline so status requests can be served.
+        try:
+            if disposition == "retried":
+                await run_in_threadpool(delete_document_chunks, str(doc.id))
+            await run_in_threadpool(
+                ingest_document, file_path=str(saved_path), document_id=str(doc.id),
+                workspace_id=str(workspace_id), filename=doc.file_name,
+            )
+        except Exception as exc:
+            try:
+                await run_in_threadpool(delete_document_chunks, str(doc.id))
+            except Exception:
+                logger.warning("Partial vector cleanup failed for document %s", doc.id)
+            saved_path.unlink(missing_ok=True)
+            service.update_document(db, id=doc.id, indexing_status="failed",
+                                    error_message="Indexing failed; select the same file to retry.")
+            raise HTTPException(status_code=500, detail="Document indexing failed. Select the same file to retry.") from exc
+        doc = service.update_document(db, id=doc.id, indexing_status="completed")
+
+    return {**DocumentResponse.model_validate(doc).model_dump(), "disposition": disposition}

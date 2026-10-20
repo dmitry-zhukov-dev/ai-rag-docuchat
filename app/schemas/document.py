@@ -22,8 +22,14 @@ class DocumentUpdate(BaseModel):
 class DocumentResponse(DocumentBase):
     id: int
     workspace_id: int
+    conversation_id: Optional[int] = None
+    file_hash: Optional[str] = None
     indexing_status: str
     error_message: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DocumentUploadResponse(DocumentResponse):
+    disposition: str  # accepted, already_exists, processing, failed, retried

@@ -117,12 +117,18 @@ class WorkspaceService:
                     f"{': ' + diagnostic if diagnostic else ''}"
                 )
 
+        # Do not remove chats while a document remains (including processing uploads).
+        if self.document_service.list_workspace_documents(db, workspace_id=id, limit=1):
+            db.rollback()
+            return None, "conflict", diagnostics
+
         # Conversations cascade to their messages.
         for conversation in list(workspace.conversations):
-            deleted = self.conversation_service.delete_conversation(
-                db,
-                conversation.id,
-            )
+            try:
+                deleted = self.conversation_service.delete_conversation(db, conversation.id)
+            except ValueError:
+                db.rollback()
+                return None, "conflict", diagnostics
 
             if not deleted:
                 diagnostics.append(

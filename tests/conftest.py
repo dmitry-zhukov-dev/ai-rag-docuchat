@@ -53,5 +53,11 @@ def client():
         finally:
             db.close()
         c.cookies.set(settings.session_cookie_name, session.id)
+        def mark_document_ready(document_id):
+            # Server-side legacy fixture setup, not a public status mutation.
+            from app.services.document import DocumentService
+            with TestingSessionLocal() as db:
+                DocumentService().update_document(db, id=document_id, indexing_status="completed")
+        c.mark_document_ready = mark_document_ready
         yield c
         app.dependency_overrides.clear()

@@ -1,348 +1,143 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const SESSION_COOKIE = 'docuchat_session';
-
-    // ---------- State ----------
     const state = {
-        workspaces: [],
-        selectedWorkspace: null,
-        documents: [],
-        selectedDocumentIds: new Set(),
-        conversations: [],
-        selectedConversation: null,
-        evaluationCases: [],
-        selectedEvaluationCase: null,
-        chatSubmitting: false,
-        evaluationRunning: false,
-        pollTimer: null,
+        context: null, documents: [], chatSubmitting: false,
+        uploading: false, loadingDocuments: false, pollTimer: null,
     };
-
-    // ---------- DOM helpers ----------
     const $ = (id) => document.getElementById(id);
-
     function el(tag, className, text) {
         const node = document.createElement(tag);
         if (className) node.className = className;
         if (text !== undefined) node.textContent = text;
         return node;
     }
-
     function showToast(message) {
-        const toast = $('app-error');
-        toast.textContent = message;
-        toast.classList.remove('hidden');
-        setTimeout(() => toast.classList.add('hidden'), 6000);
+        $('app-error').textContent = message;
+        $('app-error').classList.remove('hidden');
     }
-
-    function showSectionError(elementId, message) {
-        const element = $(elementId);
-        element.textContent = message;
-        element.classList.remove('hidden');
+    function updateControls() {
+        const ready = state.context && !state.uploading && !state.chatSubmitting &&
+            state.documents.some((doc) => doc.indexing_status === 'completed') &&
+            !state.documents.some((doc) => doc.indexing_status === 'processing');
+        $('chat-input').disabled = !ready;
+        $('send-chat-btn').disabled = !ready;
+        $('chat-input').placeholder = ready ? 'Ask a question about your documents…' : 'Waiting for a ready document…';
+        $('upload-area').disabled = !state.context || state.uploading;
     }
-
-    function clearSectionError(elementId) {
-        $(elementId).classList.add('hidden');
-    }
-
-    // ---------- API ----------
     async function api(path, options = {}) {
         const response = await fetch(path, {
-            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
             ...options,
+            headers: options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
         });
-
         if (response.status === 401) {
-            // The session expired: start a new one and
-            // retry the request exactly once.
-            await createSession();
-            const retry = await fetch(path, {
-                headers: { 'Content-Type': 'application/json' },
-                ...options,
-            });
-            if (!retry.ok) throw new Error('Please refresh the page.');
-            return retry.json();
+            // Never replay mutations under a newly created identity.
+            state.context = null;
+            clearTimeout(state.pollTimer);
+            updateControls();
+            $('reconnect-btn').classList.remove('hidden');
+            throw new Error('Your session expired. Reconnect to prepare a new chat.');
         }
-
         if (!response.ok) {
-            let detail = `Request failed (${response.status})`;
-            try {
-                const body = await response.json();
-                if (body && body.detail) detail = body.detail;
-            } catch (_) {
-                // Keep the generic message.
-            }
-            throw new Error(detail);
+            const body = await response.json().catch(() => ({}));
+            throw new Error(typeof body.detail === 'string' ? body.detail : `Request failed (${response.status}).`);
         }
-
-        if (response.status === 204) return null;
-        return response.json();
+        return response.status === 204 ? null : response.json();
     }
-
-    function getCookie(name) {
-        const prefix = name + '=';
-        for (const part of document.cookie.split(';')) {
-            const entry = part.trim();
-            if (entry.startsWith(prefix)) {
-                return entry.substring(prefix.length);
-            }
-        }
-        return null;
-    }
-
-    async function createSession() {
-        await api('/api/v1/sessions', { method: 'POST' });
-    }
-
-    // ---------- Workspaces ----------
-    async function loadWorkspaces() {
-        $('workspace-loading').classList.remove('hidden');
-        $('workspace-error').classList.add('hidden');
-        try {
-            state.workspaces = await api('/api/v1/workspaces/');
-            renderWorkspaces();
-        } catch (error) {
-            $('workspace-error').classList.remove('hidden');
-        } finally {
-            $('workspace-loading').classList.add('hidden');
+    async function allPages(path) {
+        const rows = [];
+        for (let skip = 0; ; skip += 100) {
+            const page = await api(`${path}${path.includes('?') ? '&' : '?'}skip=${skip}&limit=100`);
+            rows.push(...page);
+            if (page.length < 100) return rows;
         }
     }
-
-    function renderWorkspaces() {
-        const list = $('workspace-list');
-        list.innerHTML = '';
-
-        if (state.workspaces.length === 0) {
-            list.appendChild(
-                el('p', null, 'No workspaces yet. Create one to begin.')
-            );
-            return;
-        }
-
-        for (const workspace of state.workspaces) {
-            const item = el('div', 'workspace-item', workspace.name);
-            if (
-                state.selectedWorkspace &&
-                workspace.id === state.selectedWorkspace.id
-            ) {
-                item.classList.add('selected');
-            }
-            item.onclick = () => selectWorkspace(workspace);
-            list.appendChild(item);
-        }
+    function documentPath() {
+        return `/api/v1/workspaces/${state.context.workspace_id}/documents?conversation_id=${state.context.conversation_id}`;
     }
-
-    async function selectWorkspace(workspace) {
-        state.selectedWorkspace = workspace;
-        state.selectedConversation = null;
-        state.selectedDocumentIds = new Set();
-        state.selectedEvaluationCase = null;
-        renderWorkspaces();
-        $('workspace-name').textContent = workspace.name;
-        $('empty-state').classList.add('hidden');
-        $('workspace-view').classList.remove('hidden');
-        await Promise.all([
-            loadDocuments(),
-            loadConversations(),
-            loadEvaluationCases(),
-        ]);
-    }
-
-    // ---------- Documents ----------
     async function loadDocuments() {
-        if (!state.selectedWorkspace) return;
+        if (!state.context || state.loadingDocuments) return;
+        state.loadingDocuments = true;
+        clearTimeout(state.pollTimer);
         try {
-            state.documents = await api(
-                `/api/v1/workspaces/${state.selectedWorkspace.id}/documents`
-            );
+            const documents = await allPages(documentPath());
+            state.documents = documents;
             renderDocuments();
+            $('document-error').classList.add('hidden');
         } catch (error) {
-            showSectionError('document-error', 'Failed to load documents.');
+            // Preserve successful upload metadata; this is NOT an upload failure.
+            $('document-error').textContent = `Could not refresh the document list. ${error.message} You do not need to upload again.`;
+            $('document-error').classList.remove('hidden');
+        } finally {
+            state.loadingDocuments = false;
+            updateControls();
+            if (state.context && state.documents.some((doc) => doc.indexing_status === 'processing')) {
+                state.pollTimer = setTimeout(loadDocuments, 3000);
+            }
         }
     }
-
     function renderDocuments() {
         const list = $('document-list');
-        list.innerHTML = '';
-        clearSectionError('document-error');
-
-        if (state.documents.length === 0) {
-            list.appendChild(
-                el('p', null, 'No documents uploaded yet.')
-            );
-            return;
-        }
-
-        for (const document of state.documents) {
+        list.replaceChildren();
+        if (!state.documents.length) list.appendChild(el('p', 'hint', 'No documents yet.'));
+        for (const doc of state.documents) {
             const row = el('div', 'document-item');
-            const ready = document.indexing_status === 'completed';
-
-            const label = el('label');
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.checked = state.selectedDocumentIds.has(
-                document.id
-            );
-            checkbox.disabled = !ready;
-            checkbox.onchange = () => {
-                if (checkbox.checked) {
-                    state.selectedDocumentIds.add(document.id);
-                } else {
-                    state.selectedDocumentIds.delete(document.id);
-                }
-            };
-            label.appendChild(checkbox);
-            label.appendChild(
-                el(
-                    'span',
-                    null,
-                    `${document.file_name} (${document.file_format})`
-                )
-            );
-            row.appendChild(label);
-
-            const badge = el(
-                'span',
-                `status-badge status-${document.indexing_status}`,
-                document.indexing_status
-            );
-            row.appendChild(badge);
-
-            if (document.error_message) {
-                row.appendChild(
-                    el('span', 'error-message', document.error_message)
-                );
-            }
-
+            row.appendChild(el('span', null, doc.file_name));
+            row.appendChild(el('span', `status-badge status-${doc.indexing_status}`, doc.indexing_status));
+            if (doc.indexing_status === 'failed') row.appendChild(el('span', 'hint', 'Choose the same file to retry.'));
             const deleteBtn = el('button', 'btn btn-delete', 'Delete');
-            deleteBtn.onclick = () => deleteDocument(document.id);
+            deleteBtn.disabled = doc.indexing_status === 'processing';
+            deleteBtn.onclick = async () => {
+                if (!confirm('Delete this document and its indexed data?')) return;
+                deleteBtn.disabled = true;
+                try {
+                    const result = await api(`/api/v1/documents/${doc.id}`, { method: 'DELETE' });
+                    if (result && result.diagnostic) showToast('Document removed, but stored-file cleanup was incomplete.');
+                    await loadDocuments();
+                } catch (error) { showToast(error.message); deleteBtn.disabled = false; }
+            };
             row.appendChild(deleteBtn);
-
             list.appendChild(row);
         }
-
-        // While any document is still processing, poll for
-        // status changes.
-        const processing = state.documents.some(
-            (document) => document.indexing_status === 'processing'
-        );
-        if (processing && !state.pollTimer) {
-            state.pollTimer = setInterval(loadDocuments, 3000);
-        } else if (!processing && state.pollTimer) {
-            clearInterval(state.pollTimer);
-            state.pollTimer = null;
-        }
     }
-
-    async function uploadDocument() {
-        if (!state.selectedWorkspace) return;
-        const input = $('file-input');
-        const file = input.files && input.files[0];
-
-        if (!file) {
-            showToast('Choose a TXT or PDF file first.');
+    async function uploadDocument(file) {
+        if (!file || !state.context || state.uploading) return;
+        if (!/\.(pdf|txt)$/i.test(file.name) || !file.size || file.size > state.context.max_file_size_bytes) {
+            showToast('Choose a nonempty PDF or TXT within the displayed size limit.');
             return;
         }
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        $('upload-loading').classList.remove('hidden');
+        state.uploading = true;
+        updateControls();
+        $('upload-status').textContent = `Uploading and processing ${file.name}…`;
+        const data = new FormData();
+        data.append('file', file);
+        let uploaded;
         try {
-            const response = await fetch(
-                `/api/v1/workspaces/${state.selectedWorkspace.id}/documents/upload`,
-                { method: 'POST', body: formData }
-            );
-            if (!response.ok) {
-                const body = await response.json().catch(() => ({}));
-                throw new Error(body.detail || 'Upload failed');
+            const path = `/api/v1/workspaces/${state.context.workspace_id}/documents/upload?conversation_id=${state.context.conversation_id}`;
+            uploaded = await api(path, { method: 'POST', body: data });
+            if (uploaded.disposition === 'failed' && confirm('This document previously failed indexing. Retry now?')) {
+                uploaded = await api(`${path}&retry=true`, { method: 'POST', body: data });
             }
-            input.value = '';
-            await loadDocuments();
         } catch (error) {
-            showToast(error.message);
+            $('upload-status').textContent = `Upload or processing could not be confirmed: ${error.message} Refresh status before retrying.`;
         } finally {
-            $('upload-loading').classList.add('hidden');
+            state.uploading = false;
+            $('file-input').value = '';
         }
-    }
-
-    async function deleteDocument(documentId) {
-        if (!confirm('Delete this document and its indexed data?')) return;
-        try {
-            await api(`/api/v1/documents/${documentId}`, {
-                method: 'DELETE',
-            });
-            state.selectedDocumentIds.delete(documentId);
-            await loadDocuments();
-        } catch (error) {
-            showToast(error.message);
+        if (uploaded) {
+            const labels = { already_exists: 'Already uploaded', processing: 'Already processing',
+                failed: 'Indexing failed; choose the same file to retry', accepted: 'Ready', retried: 'Ready' };
+            $('upload-status').textContent = `${uploaded.file_name}: ${labels[uploaded.disposition] || uploaded.indexing_status}.`;
+            state.documents = [...state.documents.filter((doc) => doc.id !== uploaded.id), uploaded];
+            try { renderDocuments(); } catch (_) { showToast('Upload succeeded, but the document display could not refresh.'); }
         }
+        updateControls();
+        await loadDocuments();
     }
-
-    // ---------- Conversations and chat ----------
-    async function loadConversations() {
-        if (!state.selectedWorkspace) return;
-        try {
-            state.conversations = await api(
-                `/api/v1/workspaces/${state.selectedWorkspace.id}/conversations`
-            );
-            renderConversations();
-        } catch (error) {
-            showToast('Failed to load conversations.');
-        }
-    }
-
-    function renderConversations() {
-        const list = $('conversation-list');
-        list.innerHTML = '';
-
-        for (const conversation of state.conversations) {
-            const button = el(
-                'button',
-                null,
-                conversation.title || 'Untitled Chat'
-            );
-            if (
-                state.selectedConversation &&
-                conversation.id === state.selectedConversation.id
-            ) {
-                button.classList.add('selected');
-            }
-            button.onclick = () => selectConversation(conversation);
-            list.appendChild(button);
-        }
-    }
-
-    async function createConversation() {
-        if (!state.selectedWorkspace) return;
-        const title = prompt('Chat title:') || 'Untitled Chat';
-        const conversation = await api(
-            `/api/v1/workspaces/${state.selectedWorkspace.id}/conversations`,
-            {
-                method: 'POST',
-                body: JSON.stringify({ title }),
-            }
-        ).catch((error) => {
-            showToast(error.message);
-            return null;
-        });
-        if (conversation) await selectConversation(conversation);
-    }
-
-    async function selectConversation(conversation) {
-        state.selectedConversation = conversation;
-        renderConversations();
-        $('chat-window').classList.remove('hidden');
-        $('chat-title').textContent = conversation.title || 'Conversation';
-        await loadMessages();
-    }
-
     async function loadMessages() {
-        if (!state.selectedConversation) return;
-        const messages = await api(
-            `/api/v1/conversations/${state.selectedConversation.id}/messages`
-        ).catch(() => []);
+        if (!state.context) return;
+        const messages = await allPages(`/api/v1/conversations/${state.context.conversation_id}/messages`);
         renderMessages(messages);
     }
-
     function renderMessages(messages) {
         const history = $('message-history');
         history.innerHTML = '';
@@ -395,341 +190,58 @@ document.addEventListener('DOMContentLoaded', () => {
         return node;
     }
 
-    async function sendChatMessage() {
-        if (
-            state.chatSubmitting ||
-            !state.selectedConversation
-        ) {
-            return;
-        }
-
-        const input = $('chat-input');
-        const question = input.value.trim();
+    async function sendChatMessage(event) {
+        event.preventDefault();
+        if (state.chatSubmitting || $('send-chat-btn').disabled || !state.context) return;
+        const question = $('chat-input').value.trim();
         if (!question) return;
-
         state.chatSubmitting = true;
-        $('send-chat-btn').disabled = true;
+        updateControls();
         $('chat-loading').classList.remove('hidden');
-        input.value = '';
-
-        const body = { question };
-        if (state.selectedDocumentIds.size > 0) {
-            body.document_ids = Array.from(
-                state.selectedDocumentIds
-            );
-        }
-
         try {
-            await api(
-                `/api/v1/conversations/${state.selectedConversation.id}/chat`,
-                { method: 'POST', body: JSON.stringify(body) }
-            );
-            await loadMessages();
-        } catch (error) {
-            showToast(error.message);
-        } finally {
-            $('chat-loading').classList.add('hidden');
-            $('send-chat-btn').disabled = false;
+            const result = await api(`/api/v1/conversations/${state.context.conversation_id}/chat`, {
+                method: 'POST', body: JSON.stringify({ question }),
+            });
+            $('chat-input').value = '';
+            if (result.insufficient_context) showToast('No supporting context was found in these documents.');
+        } catch (error) { showToast(error.message); }
+        finally {
+            try { await loadMessages(); } catch (_) { showToast('Could not refresh conversation history. Refresh the page; do not resend automatically.'); }
             state.chatSubmitting = false;
+            $('chat-loading').classList.add('hidden');
+            updateControls();
         }
     }
-
-    // ---------- Evaluation ----------
-    async function loadEvaluationCases() {
-        if (!state.selectedWorkspace) return;
+    async function init() {
+        $('reconnect-btn').disabled = true;
         try {
-            state.evaluationCases = await api(
-                `/api/v1/workspaces/${state.selectedWorkspace.id}/evaluations`
-            );
-            renderEvaluationCases();
-        } catch (error) {
-            // Evaluation is an optional panel; surface
-            // failures without breaking the main workflow.
-        }
-    }
-
-    function renderEvaluationCases() {
-        const list = $('evaluation-list');
-        list.innerHTML = '';
-
-        for (const testCase of state.evaluationCases) {
-            const button = el('button', null, testCase.name);
-            if (
-                state.selectedEvaluationCase &&
-                testCase.id === state.selectedEvaluationCase.id
-            ) {
-                button.classList.add('selected');
-            }
-            button.onclick = () => selectEvaluationCase(testCase);
-            list.appendChild(button);
-        }
-    }
-
-    function selectEvaluationCase(testCase) {
-        state.selectedEvaluationCase = testCase;
-        renderEvaluationCases();
-        $('evaluation-editor').classList.remove('hidden');
-        $('evaluation-editor-title').textContent = testCase.name;
-        $('evaluation-name').value = testCase.name;
-        $('evaluation-question').value = testCase.question;
-        $('evaluation-reference').value =
-            testCase.reference_answer || '';
-        $('evaluation-facts').value = (
-            testCase.required_facts || []
-        ).join('\n');
-        $('evaluation-expected-sources').value = (
-            testCase.expected_sources || []
-        )
-            .map((source) => source.document_id)
-            .join(', ');
-        $('evaluation-run-btn').disabled =
-            testCase.indexing_status === undefined;
-        renderEvaluationDocumentSelection(testCase);
-        $('evaluation-results').classList.add('hidden');
-    }
-
-    function renderEvaluationDocumentSelection(testCase) {
-        const container = $('evaluation-document-list');
-        container.innerHTML = '';
-
-        for (const document of state.documents) {
-            if (document.indexing_status !== 'completed') continue;
-            const label = el('label');
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.checked = (
-                testCase.selected_document_ids || []
-            ).includes(document.id);
-            checkbox.onchange = () => {
-                testCase.selected_document_ids =
-                    testCase.selected_document_ids || [];
-                if (checkbox.checked) {
-                    testCase.selected_document_ids.push(
-                        document.id
-                    );
-                } else {
-                    testCase.selected_document_ids =
-                        testCase.selected_document_ids.filter(
-                            (id) => id !== document.id
-                        );
-                }
-            };
-            label.appendChild(checkbox);
-            label.appendChild(
-                el('span', null, document.file_name)
-            );
-            container.appendChild(label);
-        }
-    }
-
-    async function saveEvaluationCase() {
-        const testCase = state.selectedEvaluationCase;
-        if (!testCase) return;
-
-        const payload = {
-            name: $('evaluation-name').value.trim(),
-            question: $('evaluation-question').value.trim(),
-            reference_answer: $('evaluation-reference').value.trim(),
-            required_facts: $('evaluation-facts').value
-                .split('\n')
-                .map((line) => line.trim())
-                .filter(Boolean),
-            expected_sources: $('evaluation-expected-sources')
-                .value.split(',')
-                .map((value) => value.trim())
-                .filter(Boolean)
-                .map((documentId) => ({ document_id: documentId })),
-            selected_document_ids:
-                testCase.selected_document_ids || [],
-        };
-
-        try {
-            const saved = testCase.id
-                ? await api(`/api/v1/evaluations/${testCase.id}`, {
-                      method: 'PATCH',
-                      body: JSON.stringify(payload),
-                  })
-                : await api(
-                      `/api/v1/workspaces/${state.selectedWorkspace.id}/evaluations`,
-                      {
-                          method: 'POST',
-                          body: JSON.stringify(payload),
-                      }
-                  );
-            await loadEvaluationCases();
-            selectEvaluationCase(saved);
+            // Browser sends HttpOnly cookies; only the server checks validity.
+            await api('/api/v1/sessions', { method: 'POST' });
+            state.context = await api('/api/v1/sessions/context', { method: 'POST' });
+            state.documents = [];
+            $('message-history').replaceChildren();
+            $('upload-status').textContent = '';
+            $('upload-hint').textContent = `PDF or TXT, up to ${state.context.max_file_size_bytes / 1024 / 1024} MB. Keep this browser cookie to retain access.`;
+            await loadDocuments();
+            await loadMessages();
+            $('initialization-status').textContent = 'Your chat is ready.';
+            $('reconnect-btn').classList.add('hidden');
         } catch (error) {
             showToast(error.message);
-        }
+            $('initialization-status').textContent = 'Could not restore your chat.';
+            $('reconnect-btn').classList.remove('hidden');
+        } finally { $('reconnect-btn').disabled = false; updateControls(); }
     }
-
-    async function deleteEvaluationCase() {
-        const testCase = state.selectedEvaluationCase;
-        if (!testCase || !testCase.id) return;
-        if (!confirm('Delete this test case and its runs?')) return;
-
-        try {
-            await api(`/api/v1/evaluations/${testCase.id}`, {
-                method: 'DELETE',
-            });
-            state.selectedEvaluationCase = null;
-            $('evaluation-editor').classList.add('hidden');
-            await loadEvaluationCases();
-        } catch (error) {
-            showToast(error.message);
-        }
-    }
-
-    async function runEvaluationCase() {
-        const testCase = state.selectedEvaluationCase;
-        if (!testCase || state.evaluationRunning) return;
-
-        state.evaluationRunning = true;
-        $('evaluation-run-btn').disabled = true;
-        $('evaluation-run-status').classList.remove('hidden');
-        $('evaluation-results-table').classList.add('hidden');
-        $('evaluation-error').classList.add('hidden');
-
-        try {
-            const run = await api(
-                `/api/v1/evaluations/${testCase.id}/runs`,
-                { method: 'POST' }
-            );
-            await pollEvaluationRun(run.id);
-        } catch (error) {
-            showSectionError('evaluation-error', error.message);
-        } finally {
-            state.evaluationRunning = false;
-            $('evaluation-run-btn').disabled = false;
-            $('evaluation-run-status').classList.add('hidden');
-        }
-    }
-
-    async function pollEvaluationRun(runId) {
-        const run = await api(`/api/v1/evaluation-runs/${runId}`);
-
-        if (run.status === 'running' || run.status === 'pending') {
-            setTimeout(() => pollEvaluationRun(runId), 2000);
-            return;
-        }
-
-        renderEvaluationRun(run);
-    }
-
-    function renderEvaluationRun(run) {
-        const results = $('evaluation-results');
-        results.classList.remove('hidden');
-
-        const table = $('evaluation-results-table');
-        const body = $('evaluation-results-body');
-        table.classList.remove('hidden');
-        body.innerHTML = '';
-
-        const metrics = run.metrics || {};
-        for (const [key, value] of Object.entries(metrics)) {
-            const row = el('tr');
-            row.appendChild(el('td', null, key));
-            row.appendChild(el('td', null, String(value)));
-            body.appendChild(row);
-        }
-
-        const answer = $('evaluation-answer');
-        answer.classList.remove('hidden');
-        answer.textContent = `Answer: ${run.answer || '(none)'}`;
-
-        const sources = $('evaluation-sources');
-        sources.classList.remove('hidden');
-        sources.innerHTML = '';
-        sources.appendChild(el('strong', null, 'Sources used:'));
-        for (const source of run.actual_sources || []) {
-            sources.appendChild(renderSource(source));
-        }
-
-        if (run.error) {
-            showSectionError('evaluation-error', run.error);
-        }
-    }
-
-    // ---------- Wiring ----------
-    $('create-workspace-btn').onclick = async () => {
-        const name = prompt('Workspace name:');
-        if (!name || !name.trim()) return;
-        try {
-            const workspace = await api('/api/v1/workspaces/', {
-                method: 'POST',
-                body: JSON.stringify({ name: name.trim() }),
-            });
-            await loadWorkspaces();
-            await selectWorkspace(workspace);
-        } catch (error) {
-            showToast(error.message);
-        }
-    };
-
-    $('delete-workspace-btn').onclick = async () => {
-        if (!state.selectedWorkspace) return;
-        if (
-            !confirm(
-                `Delete workspace "${state.selectedWorkspace.name}" and all of its data?`
-            )
-        ) {
-            return;
-        }
-        try {
-            await api(
-                `/api/v1/workspaces/${state.selectedWorkspace.id}`,
-                { method: 'DELETE' }
-            );
-            state.selectedWorkspace = null;
-            $('workspace-view').classList.add('hidden');
-            $('empty-state').classList.remove('hidden');
-            await loadWorkspaces();
-        } catch (error) {
-            showToast(error.message);
-        }
-    };
-
-    $('upload-btn').onclick = uploadDocument;
-    $('refresh-documents-btn').onclick = loadDocuments;
-    $('new-chat-btn').onclick = createConversation;
-    $('send-chat-btn').onclick = sendChatMessage;
-    $('chat-input').addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') sendChatMessage();
+    $('upload-area').onclick = () => $('file-input').click();
+    $('file-input').onchange = () => uploadDocument($('file-input').files[0]);
+    document.addEventListener('dragover', (event) => { event.preventDefault(); });
+    document.addEventListener('drop', (event) => {
+        event.preventDefault();
+        if (event.dataTransfer.files.length !== 1) { showToast('Please upload one file at a time.'); return; }
+        uploadDocument(event.dataTransfer.files[0]);
     });
-
-    $('new-evaluation-btn').onclick = () => {
-        state.selectedEvaluationCase = {
-            id: null,
-            name: 'New test case',
-            question: '',
-            reference_answer: '',
-            required_facts: [],
-            expected_sources: [],
-            selected_document_ids: [],
-        };
-        selectEvaluationCase(state.selectedEvaluationCase);
-    };
-    $('evaluation-save-btn').onclick = saveEvaluationCase;
-    $('evaluation-run-btn').onclick = runEvaluationCase;
-    $('evaluation-delete-btn').onclick = deleteEvaluationCase;
-    $('evaluation-cancel-btn').onclick = () => {
-        state.selectedEvaluationCase = null;
-        $('evaluation-editor').classList.add('hidden');
-        $('evaluation-results').classList.add('hidden');
-        renderEvaluationCases();
-    };
-
-    // ---------- Initialization ----------
-    (async function init() {
-        try {
-            // Start (or reuse) the anonymous session;
-            // the server sets the session cookie.
-            if (!getCookie(SESSION_COOKIE)) {
-                await createSession();
-            }
-            await loadWorkspaces();
-        } catch (error) {
-            showToast('Failed to initialize the application.');
-        }
-    })();
+    $('refresh-documents-btn').onclick = loadDocuments;
+    $('reconnect-btn').onclick = init;
+    $('chat-form').onsubmit = sendChatMessage;
+    init();
 });

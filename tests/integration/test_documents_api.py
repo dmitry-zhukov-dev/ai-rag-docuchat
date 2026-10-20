@@ -36,9 +36,11 @@ def test_document_upload(client: TestClient, monkeypatch):
         assert response.status_code == 201
         workspace_id = response.json()["id"]
 
+        conversation_id = client.post(f"/api/v1/workspaces/{workspace_id}/conversations", json={}).json()["id"]
+
         # 2. Upload a small TXT file
         response = client.post(
-            f"/api/v1/workspaces/{workspace_id}/documents/upload",
+            f"/api/v1/workspaces/{workspace_id}/documents/upload?conversation_id={conversation_id}",
             files={
                 "file": (
                     "test.txt",
@@ -118,13 +120,12 @@ def test_document_update_and_not_found(client: TestClient):
         f"/api/v1/documents/{document_id}",
         json={"indexing_status": "completed"},
     )
-    assert response.status_code == 200
-    assert response.json()["indexing_status"] == "completed"
+    assert response.status_code == 400
 
     # Read updated document
     response = client.get(f"/api/v1/documents/{document_id}")
     assert response.status_code == 200
-    assert response.json()["indexing_status"] == "completed"
+    assert response.json()["indexing_status"] == "processing"
 
     # Nonexistent document should return 404
     response = client.get("/api/v1/documents/999999")
@@ -165,6 +166,7 @@ def test_upload_failure_compensates_artifacts(client, monkeypatch):
     ws_resp = client.post("/api/v1/workspaces/", json={"name": "WS"})
     ws_id = ws_resp.json()["id"]
 
+    conversation_id = client.post(f"/api/v1/workspaces/{ws_id}/conversations", json={}).json()["id"]
     files_before = set(UPLOAD_DIR.glob("*")) if UPLOAD_DIR.exists() else set()
 
     def failing_ingest(**kwargs):
@@ -178,7 +180,7 @@ def test_upload_failure_compensates_artifacts(client, monkeypatch):
             "app.api.routes.document.delete_document_chunks"
         ) as cleanup_mock:
             response = client.post(
-                f"/api/v1/workspaces/{ws_id}/documents/upload",
+                f"/api/v1/workspaces/{ws_id}/documents/upload?conversation_id={conversation_id}",
                 files={
                     "file": (
                         "broken.pdf",

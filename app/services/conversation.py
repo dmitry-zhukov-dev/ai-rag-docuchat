@@ -99,7 +99,11 @@ class ConversationService:
         if conversation is None:
             return False
 
-        self.repo.delete(db, conversation_id)
+        from app.db.models.document import Document
+        db.query(Conversation).filter(Conversation.id == conversation_id).with_for_update().first()
+        if db.query(Document.id).filter(Document.conversation_id == conversation_id).first():
+            raise ValueError("Delete this chat's documents before deleting the chat.")
+        self.repo.delete(db, id=conversation_id)
         return True
 
 
@@ -119,3 +123,24 @@ class ConversationService:
             db_obj=conversation,
             title=title,
         )
+
+    def default_context(self, db: Session, session_id: str):
+        """One deterministic default context, serialized per existing identity."""
+        from app.db.models.session import Session as AnonymousSession
+        from app.db.models.workspace import Workspace
+        db.query(AnonymousSession).filter(AnonymousSession.id == session_id).with_for_update().one()
+        workspace = (db.query(Workspace).filter(Workspace.session_id == session_id)
+                     .order_by(Workspace.id).first())
+        if workspace is None:
+            workspace = Workspace(name="My documents", session_id=session_id)
+            db.add(workspace)
+            db.flush()
+        conversation = (db.query(Conversation).filter(Conversation.workspace_id == workspace.id)
+                        .order_by(Conversation.id).first())
+        if conversation is None:
+            conversation = Conversation(workspace_id=workspace.id, title="DocuChat")
+            db.add(conversation)
+            db.flush()
+        result = {"workspace_id": workspace.id, "conversation_id": conversation.id}
+        db.commit()
+        return result

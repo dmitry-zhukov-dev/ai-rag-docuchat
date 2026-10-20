@@ -22,6 +22,31 @@
 | 13. Documentation and final static audit | Not started | Reconcile code, contracts, configuration, tests, architecture, and documentation before final database assembly. |
 | 14. Final database, launch, and acceptance | Partially completed (Database aligned & persistence verified) | PostgreSQL schema cleanly migrated to c4f1a2b3d4e5 head, pre-migration backup verified, and persistence verified via repositories. Application launch and RAG smoke test pending user authorization. |
 
+## Anonymous-chat follow-up inspection — 2026-10-20
+
+- User-requested TODO 0: static inspection completed; runtime unverified. See [inspection and approval request](anonymous-chat-inspection.md).
+- Confirmed frontend DOM shadowing causes the document-list error on nonempty lists; session bootstrap replaces HttpOnly-cookie identities on reload; upload always creates a new document and ingestion context.
+- TODOs 1–10 implementation is paused at the required schema/legacy-data decision: documents have neither content hashes nor chat associations. Proposed additive fields and chat/hash uniqueness require approval; legacy multi-chat workspaces require an explicit association policy.
+- Changes: inspection report and this tracker note only. No application/schema/test implementation changes, migrations applied, application launches, tests or service operations. Existing stage status claims above are historical, not new verification in this follow-up.
+
+## Anonymous-chat approved implementation — 2026-10-20
+
+User approved the two additive document columns and required constraints/indexes, with legacy workspace sharing retained. The follow-up inspection blocker above is superseded by this decision.
+
+| Requested work | Source status | Verification |
+|---|---|---|
+| TODO 0 inspection | Completed static inspection | No runtime investigation |
+| TODO 1 identity restoration | Implemented; existing bearer storage/cookie model retained | Unverified at runtime |
+| TODO 2 default context | Implemented with session-row serialization | PostgreSQL concurrency unverified |
+| TODO 3/7 simple UI | Implemented using existing static frontend and source renderer | Browser behavior unverified |
+| TODO 4/5 deduplication and RAG consistency | Implemented chat/hash claim and uniqueness, legacy-compatible retrieval, explicit failed retry | Migration not applied; PostgreSQL/Qdrant unverified |
+| TODO 6 upload errors | Implemented separate upload metadata and refresh/render warning paths | Failure injection unverified |
+| TODO 8 ownership | Existing ownership checks retained; chat/workspace authorization and retrieval scope added | Security regression tests prepared, not run |
+| TODO 9 persistence | Implemented server-restored context, pagination and status polling | Crash recovery remains manual; runtime unverified |
+| TODO 10 static review/report | Source review and syntax checks performed | Acceptance tests not executed |
+
+See [implementation report](anonymous-chat-implementation.md) for every changed file, schema/nullability rationale, deployment gate, compatibility changes, limitations and manual verification checklist. Additive migration source `d8e2f6a1b903` contains only approved columns and their required constraints; no live schema, data, files or vectors were modified through application/service operations. No application, tests, database queries, migrations or Qdrant operations were run. Python AST parsing, JavaScript syntax-only checking and diff whitespace checks were performed. No runtime passing claims are made.
+
 ## Important status rules
 
 These statuses are an initial working snapshot, not proof of runtime correctness.
