@@ -20,7 +20,7 @@
 | 11. Test preparation | Not started as a complete stage | Prepare and statically review tests. Do not execute them before Stage 14 and explicit user authorization. |
 | 12. Configuration and Docker | Not started as a complete stage | Reconcile Python version, dependencies, environment configuration, and container setup. |
 | 13. Documentation and final static audit | Not started | Reconcile code, contracts, configuration, tests, architecture, and documentation before final database assembly. |
-| 14. Final database, launch, and acceptance | Not started; restricted | Requires completion of the earlier implementation and explicit user authorization before runtime operations. |
+| 14. Final database, launch, and acceptance | Partially completed (Database aligned & persistence verified) | PostgreSQL schema cleanly migrated to c4f1a2b3d4e5 head, pre-migration backup verified, and persistence verified via repositories. Application launch and RAG smoke test pending user authorization. |
 
 ## Important status rules
 
